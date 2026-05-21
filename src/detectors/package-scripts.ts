@@ -6,7 +6,7 @@ import type { Finding } from '../types.js';
 
 const LIFECYCLE_KEYS = ['postinstall', 'preinstall', 'prepare', 'install'] as const;
 
-type PackageDiffMode =
+export type PackageDiffMode =
   | { mode: 'directories'; oldRoot: string; newRoot: string }
   | { mode: 'git'; repo: string; base: string; head: string };
 
@@ -27,7 +27,7 @@ export async function detectPackageScripts(mode: PackageDiffMode): Promise<Findi
   return findings;
 }
 
-async function listChangedPackageJsonFiles(repo: string, base: string, head: string): Promise<string[]> {
+export async function listChangedPackageJsonFiles(repo: string, base: string, head: string): Promise<string[]> {
   const all = await listPackageJsonFiles(repo);
   const changed: string[] = [];
 
@@ -70,7 +70,7 @@ async function readScriptsAt(
   }
 }
 
-async function readPackageTextAt(mode: PackageDiffMode, file: string, side: 'old' | 'new'): Promise<string> {
+export async function readPackageTextAt(mode: PackageDiffMode, file: string, side: 'old' | 'new'): Promise<string> {
   if (mode.mode === 'directories') {
     const root = side === 'old' ? mode.oldRoot : mode.newRoot;
     try {
