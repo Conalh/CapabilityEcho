@@ -1,0 +1,19 @@
+name: ScopeTrail
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  permission-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: Conalh/ScopeTrail@v0.1.6
+        with:
+          fail-on: none
