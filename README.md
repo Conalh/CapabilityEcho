@@ -9,7 +9,7 @@ Code review for AI agent capability drift in pull requests.
 
 CapabilityEcho is a free OSS CLI and GitHub Action that reviews pull requests for risky **code and workflow changes** that expand what agents can reach — even when agent config files did not change.
 
-- JavaScript and TypeScript network, subprocess, and dynamic-eval signals
+- JavaScript, TypeScript, **and Python** network, subprocess, and dynamic-eval signals
 - `package.json` lifecycle and pipe-to-shell install scripts
 - GitHub Actions write permissions and external network steps
 - Terminal, Markdown, JSON, and line-level GitHub annotation output
@@ -115,6 +115,8 @@ CapabilityEcho v0 detects:
 - External network fetch calls in added JavaScript or TypeScript lines.
 - Subprocess or shell spawn calls in added JavaScript or TypeScript lines.
 - Dynamic code execution such as `eval()` or `new Function()` in added lines.
+- **Python equivalents:** `requests`/`httpx`/`urllib` network calls (URL-gated), `subprocess`/`os.system`/`os.popen`/`pty.spawn`, `eval`/`exec`/`compile`/`__import__`/`importlib.import_module`, and unsafe deserialization (`pickle.load`, `marshal.load`, `yaml.load` without `SafeLoader`).
+- **Newly-added dependencies with high capability surface:** headless browsers (`puppeteer`, `playwright`, `cypress`), subprocess/PTY wrappers (`execa`, `cross-spawn`, `node-pty`, `shelljs`, `zx`), arbitrary HTTP clients (`node-fetch`, `undici`, `got`, `axios`), VM/eval libraries (`vm2`, `isolated-vm`), and SSH/proxy primitives. Telemetry SDKs are flagged at medium.
 - GitHub Actions write permissions in added workflow lines.
 - External network requests in added workflow steps.
 - Workflow steps that combine secrets or env values with external requests.

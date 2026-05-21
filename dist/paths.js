@@ -28,18 +28,25 @@ export function isScannable(relativePath) {
     if (normalized.startsWith('.github/workflows/') && /\.(ya?ml)$/i.test(normalized)) {
         return true;
     }
-    return /\.(js|jsx|ts|tsx|mjs|cjs)$/i.test(normalized);
+    return /\.(js|jsx|ts|tsx|mjs|cjs|py|pyw)$/i.test(normalized);
 }
 export function isTestFile(relativePath) {
     const normalized = normalizeRelativePath(relativePath);
-    if (normalized.includes('__tests__/')) {
+    if (normalized.includes('__tests__/') || normalized.includes('/tests/')) {
+        return true;
+    }
+    if (/(^|\/)test_[^/]+\.py$/i.test(normalized) || /_test\.py$/i.test(normalized)) {
         return true;
     }
     return /\.(test|spec)\.(js|jsx|ts|tsx|mjs|cjs)$/i.test(normalized);
 }
 export function isCommentLine(content) {
     const trimmed = content.trim();
-    return trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*') || trimmed.startsWith('*/');
+    return (trimmed.startsWith('//') ||
+        trimmed.startsWith('/*') ||
+        trimmed.startsWith('*') ||
+        trimmed.startsWith('*/') ||
+        trimmed.startsWith('#'));
 }
 export function isWorkflowFile(relativePath) {
     const normalized = normalizeRelativePath(relativePath);
@@ -52,4 +59,8 @@ export function isPackageJsonFile(relativePath) {
 export function isJsFile(relativePath) {
     const normalized = normalizeRelativePath(relativePath);
     return /\.(js|jsx|ts|tsx|mjs|cjs)$/i.test(normalized);
+}
+export function isPyFile(relativePath) {
+    const normalized = normalizeRelativePath(relativePath);
+    return /\.(py|pyw)$/i.test(normalized);
 }
