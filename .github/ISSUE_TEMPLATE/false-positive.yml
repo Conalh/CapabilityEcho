@@ -1,0 +1,44 @@
+name: Detector false positive
+description: Report a CapabilityEcho finding that should be quieter or more precise.
+title: "[false positive]: "
+labels: ["detector", "false-positive"]
+body:
+  - type: textarea
+    id: finding
+    attributes:
+      label: Finding
+      description: Paste the CapabilityEcho finding text or warning annotation.
+    validations:
+      required: true
+  - type: textarea
+    id: code-shape
+    attributes:
+      label: Code or workflow shape
+      description: Share a redacted snippet or describe the relevant code/workflow shape.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: Explain whether CapabilityEcho should ignore it, lower severity, or recommend a different fix.
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Affected scope
+      description: Help prioritize whether this is a one-off or a repeated workflow issue.
+      options:
+        - One repository
+        - Multiple repositories
+        - Organization-wide pattern
+        - Not sure yet
+    validations:
+      required: true
+  - type: input
+    id: repository-count
+    attributes:
+      label: Approximate repository count
+      description: Optional estimate if this affects more than one repository.
+      placeholder: "Example: 1, 5, 20+"

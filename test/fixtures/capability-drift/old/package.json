@@ -1,0 +1,7 @@
+{
+  "name": "capability-drift-fixture",
+  "private": true,
+  "scripts": {
+    "test": "vitest"
+  }
+}

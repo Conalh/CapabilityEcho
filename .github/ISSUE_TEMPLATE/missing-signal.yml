@@ -1,0 +1,50 @@
+name: Missing capability signal
+description: Ask CapabilityEcho to detect another code, workflow, or runtime capability pattern.
+title: "[signal]: "
+labels: ["detector", "new-signal"]
+body:
+  - type: input
+    id: signal
+    attributes:
+      label: Capability signal
+      description: Example: Python subprocess, Docker socket mount, Terraform provider, shell script curl.
+    validations:
+      required: true
+  - type: textarea
+    id: file-paths
+    attributes:
+      label: File paths or languages
+      description: List the file paths, extensions, or languages CapabilityEcho should inspect.
+    validations:
+      required: true
+  - type: textarea
+    id: risky-drift
+    attributes:
+      label: Risky drift examples
+      description: Describe the code or workflow changes that should produce findings.
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Affected scope
+      description: Help prioritize whether this matters for one repo or repeated team workflows.
+      options:
+        - One repository
+        - Multiple repositories
+        - Organization-wide pattern
+        - Not sure yet
+    validations:
+      required: true
+  - type: dropdown
+    id: review-surface
+    attributes:
+      label: Review surface
+      description: Where would a CapabilityEcho warning be useful?
+      options:
+        - Pull request check
+        - Local CLI
+        - Both pull request and local CLI
+        - Not sure yet
+    validations:
+      required: true

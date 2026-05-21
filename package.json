@@ -1,0 +1,18 @@
+{
+  "name": "capabilityecho",
+  "version": "0.1.0",
+  "description": "Code review for AI agent capability drift in pull requests.",
+  "type": "module",
+  "bin": {
+    "capabilityecho": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.3"
+  },
+  "license": "MIT"
+}
