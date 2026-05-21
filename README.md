@@ -21,6 +21,17 @@ CapabilityEcho does **not** scan agent config files such as `.mcp.json` or `.cla
 
 > ScopeTrail catches permission drift in agent config. CapabilityEcho catches capability drift in the code those agents can edit and run.
 
+## Part of an AI-agent governance suite
+
+Four tools mapping orthogonal failure modes of AI-agent deployment:
+
+- **[ScopeTrail](https://github.com/Conalh/ScopeTrail)** — config drift over time (PR-level).
+- **[PolicyMesh](https://github.com/Conalh/PolicyMesh)** — policy contradictions across agent surfaces.
+- **CapabilityEcho** *(this repo)* — capability drift via code, not config.
+- **[TaskBound](https://github.com/Conalh/TaskBound)** — scope creep after the agent runs.
+
+The first three are preventive (static analysis of config and code). TaskBound is detective (behavioral, comparing stated intent vs. actual diff).
+
 ## Demo
 
 Live demo PR: [Demo: code-only capability drift](https://github.com/Conalh/CapabilityEcho/pull/1)
