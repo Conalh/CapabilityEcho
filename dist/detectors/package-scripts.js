@@ -15,7 +15,7 @@ export async function detectPackageScripts(mode) {
     }
     return findings;
 }
-async function listChangedPackageJsonFiles(repo, base, head) {
+export async function listChangedPackageJsonFiles(repo, base, head) {
     const all = await listPackageJsonFiles(repo);
     const changed = [];
     for (const file of all) {
@@ -49,7 +49,7 @@ async function readScriptsAt(mode, file, side) {
         return {};
     }
 }
-async function readPackageTextAt(mode, file, side) {
+export async function readPackageTextAt(mode, file, side) {
     if (mode.mode === 'directories') {
         const root = side === 'old' ? mode.oldRoot : mode.newRoot;
         try {

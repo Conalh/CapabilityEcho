@@ -35,12 +35,15 @@ export function isScannable(relativePath: string): boolean {
     return true;
   }
 
-  return /\.(js|jsx|ts|tsx|mjs|cjs)$/i.test(normalized);
+  return /\.(js|jsx|ts|tsx|mjs|cjs|py|pyw)$/i.test(normalized);
 }
 
 export function isTestFile(relativePath: string): boolean {
   const normalized = normalizeRelativePath(relativePath);
-  if (normalized.includes('__tests__/')) {
+  if (normalized.includes('__tests__/') || normalized.includes('/tests/')) {
+    return true;
+  }
+  if (/(^|\/)test_[^/]+\.py$/i.test(normalized) || /_test\.py$/i.test(normalized)) {
     return true;
   }
 
@@ -49,7 +52,13 @@ export function isTestFile(relativePath: string): boolean {
 
 export function isCommentLine(content: string): boolean {
   const trimmed = content.trim();
-  return trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*') || trimmed.startsWith('*/');
+  return (
+    trimmed.startsWith('//') ||
+    trimmed.startsWith('/*') ||
+    trimmed.startsWith('*') ||
+    trimmed.startsWith('*/') ||
+    trimmed.startsWith('#')
+  );
 }
 
 export function isWorkflowFile(relativePath: string): boolean {
@@ -65,4 +74,9 @@ export function isPackageJsonFile(relativePath: string): boolean {
 export function isJsFile(relativePath: string): boolean {
   const normalized = normalizeRelativePath(relativePath);
   return /\.(js|jsx|ts|tsx|mjs|cjs)$/i.test(normalized);
+}
+
+export function isPyFile(relativePath: string): boolean {
+  const normalized = normalizeRelativePath(relativePath);
+  return /\.(py|pyw)$/i.test(normalized);
 }
