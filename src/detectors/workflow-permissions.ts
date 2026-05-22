@@ -128,7 +128,7 @@ function detectPullRequestTarget(added: AddedLine): Finding[] {
 }
 
 function detectPullRequestHeadCheckoutOnTarget(added: AddedLine, hasPullRequestTarget: boolean): Finding[] {
-  if (!hasPullRequestTarget || !isPullRequestHeadCheckoutLine(added.content)) {
+  if (!hasPullRequestTarget || !referencesPullRequestHead(added.content)) {
     return [];
   }
 
@@ -139,9 +139,9 @@ function detectPullRequestHeadCheckoutOnTarget(added: AddedLine, hasPullRequestT
       severity: 'high',
       file: added.file,
       line: added.line,
-      subject: 'GitHub Actions PR-head checkout under pull_request_target',
-      message: 'Workflow checks out pull request head code in a pull_request_target workflow.',
-      recommendation: 'Use pull_request for untrusted PR code, or avoid checking out PR head code under pull_request_target.'
+      subject: 'GitHub Actions PR-head reference under pull_request_target',
+      message: 'Workflow under pull_request_target references the pull request head (SHA, ref, or repo), which can let untrusted PR code run with the elevated token context.',
+      recommendation: 'Use pull_request for untrusted PR code, or avoid referencing PR head SHA/ref/repo under pull_request_target.'
     }
   ];
 }
@@ -154,8 +154,8 @@ function hasPullRequestTargetWorkflow(content: string): boolean {
   return content.split(/\r?\n/).some(isPullRequestTargetLine);
 }
 
-function isPullRequestHeadCheckoutLine(content: string): boolean {
-  return /^\s*(?:ref|repository)\s*:\s*.*github\.event\.pull_request\.head\.(?:sha|ref|repo\.full_name)/i.test(content);
+function referencesPullRequestHead(content: string): boolean {
+  return /github\.event\.pull_request\.head\.(?:sha|ref|repo\.full_name)/i.test(content);
 }
 
 function detectSelfHostedRunner(added: AddedLine): Finding[] {

