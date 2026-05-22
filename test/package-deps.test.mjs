@@ -23,7 +23,7 @@ test('flags newly added high-capability dep (puppeteer)', async () => {
   );
   try {
     const findings = await detectPackageDeps({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
-    const f = findings.find((finding) => finding.kind === 'high_capability_dep_added');
+    const f = findings.find((finding) => finding.kind === 'capability_echo.high_capability_dep_added');
     assert.ok(f);
     assert.equal(f.subject, 'puppeteer');
     assert.equal(f.severity, 'high');
@@ -39,7 +39,7 @@ test('does not flag pre-existing deps', async () => {
   );
   try {
     const findings = await detectPackageDeps({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
-    assert.equal(findings.find((f) => f.kind === 'high_capability_dep_added'), undefined);
+    assert.equal(findings.find((f) => f.kind === 'capability_echo.high_capability_dep_added'), undefined);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -52,7 +52,7 @@ test('flags telemetry dep at medium severity', async () => {
   );
   try {
     const findings = await detectPackageDeps({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
-    const f = findings.find((finding) => finding.kind === 'telemetry_dep_added');
+    const f = findings.find((finding) => finding.kind === 'capability_echo.telemetry_dep_added');
     assert.ok(f);
     assert.equal(f.severity, 'medium');
   } finally {

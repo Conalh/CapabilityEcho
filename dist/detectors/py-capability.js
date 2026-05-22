@@ -63,7 +63,7 @@ function detectPyNetwork(added, testFile) {
     }
     return [
         {
-            kind: 'external_fetch_added',
+            kind: 'capability_echo.external_fetch_added',
             surface: 'source',
             severity: testFile ? 'low' : 'medium',
             file: added.file,
@@ -81,7 +81,7 @@ function detectPySecretExfil(added, testFile, secretVariables) {
     }
     return [
         {
-            kind: 'source_secret_exfil_pattern',
+            kind: 'capability_echo.source_secret_exfil_pattern',
             surface: 'source',
             severity: testFile ? 'medium' : 'high',
             file: added.file,
@@ -115,7 +115,7 @@ function detectPySubprocess(added, testFile) {
     }
     return [
         {
-            kind: 'subprocess_spawn_added',
+            kind: 'capability_echo.subprocess_spawn_added',
             surface: 'source',
             severity: testFile ? 'low' : 'high',
             file: added.file,
@@ -136,7 +136,7 @@ function detectPyDynamicExec(added, testFile) {
     }
     return [
         {
-            kind: 'dynamic_eval_added',
+            kind: 'capability_echo.dynamic_eval_added',
             surface: 'source',
             severity: testFile ? 'medium' : 'critical',
             file: added.file,
@@ -157,7 +157,7 @@ function detectPyUnsafeDeserialize(added, testFile) {
     }
     return [
         {
-            kind: 'unsafe_deserialize_added',
+            kind: 'capability_echo.unsafe_deserialize_added',
             surface: 'source',
             severity: testFile ? 'medium' : 'critical',
             file: added.file,

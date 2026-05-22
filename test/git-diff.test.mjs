@@ -79,9 +79,9 @@ test('CLI diffs capability drift between git refs without agent config changes',
     const report = JSON.parse(stdout);
 
     assert.equal(report.rating, 'critical');
-    assert.ok(report.findings.some((finding) => finding.kind === 'external_fetch_added'));
-    assert.ok(report.findings.some((finding) => finding.kind === 'workflow_permission_write'));
-    assert.ok(report.findings.some((finding) => finding.kind === 'lifecycle_script_added'));
+    assert.ok(report.findings.some((finding) => finding.kind === 'capability_echo.external_fetch_added'));
+    assert.ok(report.findings.some((finding) => finding.kind === 'capability_echo.workflow_permission_write'));
+    assert.ok(report.findings.some((finding) => finding.kind === 'capability_echo.lifecycle_script_added'));
   } finally {
     await rm(repo, { recursive: true, force: true });
   }
@@ -235,8 +235,8 @@ test('CLI detects package capability drift from compared git refs, not the curre
 
     assert.equal(report.changedFileCount, 1);
     assert.deepEqual(report.scannedSurfaces, ['package']);
-    assert.ok(report.findings.some((finding) => finding.kind === 'lifecycle_script_added'));
-    assert.ok(report.findings.some((finding) => finding.kind === 'high_capability_dep_added'));
+    assert.ok(report.findings.some((finding) => finding.kind === 'capability_echo.lifecycle_script_added'));
+    assert.ok(report.findings.some((finding) => finding.kind === 'capability_echo.high_capability_dep_added'));
     assert.ok(report.findings.every((finding) => finding.file === 'tools/agent/package.json'));
   } finally {
     await rm(repo, { recursive: true, force: true });
@@ -307,7 +307,7 @@ test('CLI flags PR-head checkout added to an existing pull_request_target workfl
     );
     const report = JSON.parse(stdout);
 
-    const finding = report.findings.find((item) => item.kind === 'workflow_pr_head_checkout_on_target');
+    const finding = report.findings.find((item) => item.kind === 'capability_echo.workflow_pr_head_checkout_on_target');
     assert.ok(finding);
     assert.equal(finding.file, '.github/workflows/ci.yml');
     assert.equal(finding.line, 12);
@@ -378,7 +378,7 @@ test('CLI flags external requests using existing workflow secret env vars', asyn
     );
     const report = JSON.parse(stdout);
 
-    const finding = report.findings.find((item) => item.kind === 'workflow_secret_exfil_pattern');
+    const finding = report.findings.find((item) => item.kind === 'capability_echo.workflow_secret_exfil_pattern');
     assert.ok(finding);
     assert.equal(finding.file, '.github/workflows/ci.yml');
     assert.equal(finding.line, 10);
@@ -457,7 +457,7 @@ test('CLI flags external fetches using existing source env secret variables', as
     );
     const report = JSON.parse(stdout);
 
-    const finding = report.findings.find((item) => item.kind === 'source_secret_exfil_pattern');
+    const finding = report.findings.find((item) => item.kind === 'capability_echo.source_secret_exfil_pattern');
     assert.ok(finding);
     assert.equal(finding.file, 'src/client.ts');
     assert.equal(finding.line, 4);
@@ -548,7 +548,7 @@ test('CLI flags Python external requests using existing source env secret variab
     );
     const report = JSON.parse(stdout);
 
-    const finding = report.findings.find((item) => item.kind === 'source_secret_exfil_pattern');
+    const finding = report.findings.find((item) => item.kind === 'capability_echo.source_secret_exfil_pattern');
     assert.ok(finding);
     assert.equal(finding.file, 'src/agent.py');
     assert.equal(finding.line, 6);

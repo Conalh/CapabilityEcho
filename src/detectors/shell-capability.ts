@@ -23,7 +23,7 @@ function detectPipeToShell(added: AddedLine): Finding[] {
 
   return [
     {
-      kind: 'shell_pipe_to_shell',
+      kind: 'capability_echo.shell_pipe_to_shell',
       surface: 'source',
       severity: 'critical',
       file: added.file,
@@ -42,7 +42,7 @@ function detectExternalDownload(added: AddedLine): Finding[] {
 
   return [
     {
-      kind: 'shell_external_download',
+      kind: 'capability_echo.shell_external_download',
       surface: 'source',
       severity: 'medium',
       file: added.file,

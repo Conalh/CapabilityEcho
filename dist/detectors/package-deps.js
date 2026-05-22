@@ -50,7 +50,7 @@ function compareDeps(file, oldText, newText) {
         }
         if (HIGH_CAPABILITY_DEPS.has(name)) {
             findings.push({
-                kind: 'high_capability_dep_added',
+                kind: 'capability_echo.high_capability_dep_added',
                 surface: 'package',
                 severity: 'high',
                 file,
@@ -63,7 +63,7 @@ function compareDeps(file, oldText, newText) {
         }
         if (TELEMETRY_DEPS.has(name)) {
             findings.push({
-                kind: 'telemetry_dep_added',
+                kind: 'capability_echo.telemetry_dep_added',
                 surface: 'package',
                 severity: 'medium',
                 file,

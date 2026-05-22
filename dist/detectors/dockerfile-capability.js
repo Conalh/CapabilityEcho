@@ -16,7 +16,7 @@ function detectRemoteAdd(added) {
     }
     return [
         {
-            kind: 'dockerfile_remote_add',
+            kind: 'capability_echo.dockerfile_remote_add',
             surface: 'container',
             severity: 'high',
             file: added.file,
@@ -33,7 +33,7 @@ function detectPipeToShell(added) {
     }
     return [
         {
-            kind: 'dockerfile_pipe_to_shell',
+            kind: 'capability_echo.dockerfile_pipe_to_shell',
             surface: 'container',
             severity: 'critical',
             file: added.file,
