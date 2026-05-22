@@ -45,7 +45,7 @@ const SUMMARY_LABELS: Record<string, string> = {
   'capability_echo.dockerfile_pipe_to_shell': 'Dockerfile pipe-to-shell builds',
   'capability_echo.workflow_permission_write': 'GitHub Actions write permissions',
   'capability_echo.workflow_pull_request_target': 'GitHub Actions pull_request_target triggers',
-  'capability_echo.workflow_pr_head_checkout_on_target': 'GitHub Actions PR-head checkout under pull_request_target',
+  'capability_echo.workflow_pr_head_checkout_on_target': 'GitHub Actions PR-head reference under pull_request_target',
   'capability_echo.workflow_self_hosted_runner': 'GitHub Actions self-hosted runners',
   'capability_echo.workflow_mutable_action_ref': 'GitHub Actions mutable action references',
   'capability_echo.workflow_secrets_inherit': 'GitHub Actions inherited secrets',

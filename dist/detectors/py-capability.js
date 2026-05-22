@@ -39,7 +39,7 @@ function collectSecretVariables(lines, newFileContents) {
     return varsByFile;
 }
 function addSecretVariable(varsByFile, file, content) {
-    const match = content.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:os\.environ\s*(?:\[\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"]\s*\]|\.get\s*\(\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"])|os\.getenv\s*\(\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"])/i);
+    const match = content.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:(?:os\.)?environ\s*(?:\[\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"]\s*\]|\.get\s*\(\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"])|(?:os\.)?getenv\s*\(\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"])/i);
     if (!match) {
         return;
     }
@@ -97,8 +97,8 @@ function isPyExternalRequest(content) {
         /(?:https?:\/\/|['"]https?:\/\/)/i.test(content));
 }
 function referencesPyEnvSecret(content) {
-    return (/\bos\.environ\s*(?:\[\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"]\s*\]|\.get\s*\(\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"])/i.test(content) ||
-        /\bos\.getenv\s*\(\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"]/i.test(content));
+    return (/\b(?:os\.)?environ\s*(?:\[\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"]\s*\]|\.get\s*\(\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"])/i.test(content) ||
+        /\b(?:os\.)?getenv\s*\(\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"]/i.test(content));
 }
 function referencesSecretVariable(content, secretVariables) {
     return [...secretVariables].some((name) => new RegExp(String.raw `\b${escapeRegExp(name)}\b`).test(content));
