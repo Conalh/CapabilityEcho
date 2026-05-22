@@ -240,20 +240,10 @@ function isExecError(error: unknown): error is Error & { code?: number | string;
 }
 
 function normalizeGitDiffPath(file: string): string {
-  const normalized = file.replace(/\\/g, '/');
-  const markers = ['/src/', '/.github/workflows/', '/package.json'];
-  for (const marker of markers) {
-    const index = normalized.lastIndexOf(marker);
-    if (index >= 0) {
-      return normalized.slice(index + 1);
-    }
-  }
-
-  if (normalized.endsWith('package.json')) {
-    return 'package.json';
-  }
-
-  return normalized.replace(/^[a-z]:\//i, '').replace(/^b\//, '');
+  return file
+    .replace(/\\/g, '/')
+    .replace(/^[a-z]:\//i, '')
+    .replace(/^b\//, '');
 }
 
 export async function readFileAtGitRef(repo: string, ref: string, relativePath: string): Promise<string | null> {

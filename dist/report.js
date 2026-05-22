@@ -6,7 +6,7 @@ const SURFACE_LABELS = {
     workflow: 'GitHub workflows',
     container: 'container builds'
 };
-const severityRank = {
+export const severityRank = {
     none: 0,
     low: 1,
     medium: 2,

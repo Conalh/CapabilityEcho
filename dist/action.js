@@ -1,14 +1,7 @@
 import { appendFile, readFile } from 'node:fs/promises';
 import { runCapabilityDiff } from './diff.js';
 import { GitDiffSetupError } from './git-diff.js';
-import { renderReport } from './report.js';
-const severityRank = {
-    none: 0,
-    low: 1,
-    medium: 2,
-    high: 3,
-    critical: 4
-};
+import { renderReport, severityRank } from './report.js';
 export async function mainAction(env = process.env) {
     const repo = getInput(env, 'repo') || env.GITHUB_WORKSPACE || process.cwd();
     const event = await readEvent(env);

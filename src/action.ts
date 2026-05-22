@@ -1,15 +1,7 @@
 import { appendFile, readFile } from 'node:fs/promises';
 import { runCapabilityDiff } from './diff.js';
 import { GitDiffSetupError } from './git-diff.js';
-import { renderReport, type EchoRating } from './report.js';
-
-const severityRank: Record<EchoRating, number> = {
-  none: 0,
-  low: 1,
-  medium: 2,
-  high: 3,
-  critical: 4
-};
+import { renderReport, severityRank, type EchoRating } from './report.js';
 
 export async function mainAction(env: NodeJS.ProcessEnv = process.env): Promise<number> {
   const repo = getInput(env, 'repo') || env.GITHUB_WORKSPACE || process.cwd();
