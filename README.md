@@ -125,6 +125,24 @@ CapabilityEcho v0 detects:
 - Pipe-to-shell install scripts in `package.json`.
 - Network or publish commands in npm scripts.
 
+## Detection limits
+
+CapabilityEcho v0 inspects added diff lines, with a full-file pass for secret-variable
+collection in changed JS and Python files. A few patterns are still structurally
+bypassable today:
+
+- **Same-line URL requirement.** Inline network detection gates on `https?://` (or a
+  variable substitution in workflow lines). A `fetch(` and its URL split across two
+  added lines may not flag inline. Source secret exfiltration still flags when a
+  secret variable defined elsewhere is referenced on the same line as the request.
+- **No cross-file taint.** A new call site that references a URL or secret defined
+  in an existing (unchanged) file is not tainted today.
+- **No Python dependency manifests yet.** `requirements.txt`, `pyproject.toml`, and
+  `Pipfile` are not scanned. `package.json` dependency capability is.
+
+Bypass closures land regularly — see [`test/fixtures/bypasses/`](test/fixtures/bypasses)
+for the corpus of patterns the detector has been hardened against.
+
 ## Complements ScopeTrail and PolicyMesh
 
 Use the suite together:
