@@ -2,7 +2,7 @@
 
 import { fileURLToPath } from 'node:url';
 import { runCapabilityDiff } from './diff.js';
-import { renderReport, type ReportFormat } from './report.js';
+import { renderReport, severityRank, type EchoRating, type ReportFormat } from './report.js';
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (argv.length === 0 || argv.includes('--help') || argv.includes('-h')) {
@@ -31,12 +31,20 @@ async function runDiffCommand(argv: string[]): Promise<number> {
       : await runCapabilityDiff({ mode: 'git', repo: parsed.repo, base: parsed.base, head: parsed.head });
 
   process.stdout.write(renderReport(report, parsed.format));
+
+  if (severityRank[parsed.failOn] > 0 && severityRank[report.rating] >= severityRank[parsed.failOn]) {
+    process.stderr.write(
+      `CapabilityEcho capability drift rating ${report.rating} meets fail-on threshold ${parsed.failOn}.\n`
+    );
+    return 1;
+  }
+
   return 0;
 }
 
 type ParsedDiffArgs =
-  | { ok: true; mode: 'directories'; oldRoot: string; newRoot: string; format: ReportFormat }
-  | { ok: true; mode: 'git'; repo: string; base: string; head: string; format: ReportFormat }
+  | { ok: true; mode: 'directories'; oldRoot: string; newRoot: string; format: ReportFormat; failOn: EchoRating }
+  | { ok: true; mode: 'git'; repo: string; base: string; head: string; format: ReportFormat; failOn: EchoRating }
   | { ok: false; error: string };
 
 function parseDiffArgs(argv: string[]): ParsedDiffArgs {
@@ -46,6 +54,7 @@ function parseDiffArgs(argv: string[]): ParsedDiffArgs {
   let head: string | undefined;
   let repo = process.cwd();
   let format: ReportFormat = 'text';
+  let failOn: EchoRating = 'none';
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -72,6 +81,13 @@ function parseDiffArgs(argv: string[]): ParsedDiffArgs {
       }
       format = value;
       index += 1;
+    } else if (arg === '--fail-on') {
+      const normalized = (value ?? '').toLowerCase();
+      if (!isRating(normalized)) {
+        return { ok: false, error: `Invalid --fail-on value: ${value ?? ''}. Use none, low, medium, high, or critical.` };
+      }
+      failOn = normalized;
+      index += 1;
     } else {
       return { ok: false, error: `Unknown argument: ${arg}` };
     }
@@ -93,7 +109,7 @@ function parseDiffArgs(argv: string[]): ParsedDiffArgs {
       return { ok: false, error: 'Missing required --head <ref> argument.' };
     }
 
-    return { ok: true, mode: 'git', repo, base, head, format };
+    return { ok: true, mode: 'git', repo, base, head, format, failOn };
   }
 
   if (!oldRoot) {
@@ -104,11 +120,15 @@ function parseDiffArgs(argv: string[]): ParsedDiffArgs {
     return { ok: false, error: 'Missing required --new <dir> argument.' };
   }
 
-  return { ok: true, mode: 'directories', oldRoot, newRoot, format };
+  return { ok: true, mode: 'directories', oldRoot, newRoot, format, failOn };
 }
 
 function isReportFormat(value: string | undefined): value is ReportFormat {
   return value === 'text' || value === 'markdown' || value === 'json' || value === 'github';
+}
+
+function isRating(value: string): value is EchoRating {
+  return value === 'none' || value === 'low' || value === 'medium' || value === 'high' || value === 'critical';
 }
 
 const invokedPath = process.argv[1] ? fileURLToPath(import.meta.url) === process.argv[1] : false;
@@ -120,7 +140,7 @@ if (invokedPath) {
 function usage(): string {
   return [
     'Usage:',
-    '  capabilityecho diff --old <dir> --new <dir> [--format text|markdown|json|github]',
-    '  capabilityecho diff --repo <repo> --base <ref> --head <ref> [--format text|markdown|json|github]'
+    '  capabilityecho diff --old <dir> --new <dir> [--format text|markdown|json|github] [--fail-on none|low|medium|high|critical]',
+    '  capabilityecho diff --repo <repo> --base <ref> --head <ref> [--format text|markdown|json|github] [--fail-on none|low|medium|high|critical]'
   ].join('\n');
 }

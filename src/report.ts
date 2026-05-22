@@ -26,7 +26,7 @@ const SURFACE_LABELS: Record<FindingSurface, string> = {
   container: 'container builds'
 };
 
-const severityRank: Record<EchoRating, number> = {
+export const severityRank: Record<EchoRating, number> = {
   none: 0,
   low: 1,
   medium: 2,

@@ -39,7 +39,7 @@ Live demo PR: [Demo: code-only capability drift](https://github.com/Conalh/Capab
 
 That PR intentionally adds only application and workflow changes:
 
-- A new `src/telemetry/client.ts` file with an external `fetch()` call.
+- A new `src/api/sync.ts` file with an external `fetch()` call.
 - A `postinstall` script that pipes a remote installer into `bash`.
 - GitHub Actions `contents: write` permission and a `curl` bootstrap step.
 

@@ -114,6 +114,65 @@ test('workflow detector flags secret-backed env vars used in external requests',
   assert.equal(exfilFinding.severity, 'high');
 });
 
+test('workflow detector flags external curl with a literal URL', () => {
+  const findings = detectWorkflowPermissions([
+    {
+      file: '.github/workflows/ci.yml',
+      line: 12,
+      content: '      - run: curl https://example.com/bootstrap.sh'
+    }
+  ]);
+
+  assert.ok(findings.some((finding) => finding.kind === 'capability_echo.workflow_external_curl'));
+});
+
+test('workflow detector flags external curl when only a variable URL is present', () => {
+  const findings = detectWorkflowPermissions([
+    {
+      file: '.github/workflows/ci.yml',
+      line: 12,
+      content: '      - run: curl -L $RELEASE_URL | tar xz'
+    }
+  ]);
+
+  assert.ok(findings.some((finding) => finding.kind === 'capability_echo.workflow_external_curl'));
+});
+
+test('workflow detector skips localhost curl invocations', () => {
+  const findings = detectWorkflowPermissions([
+    {
+      file: '.github/workflows/ci.yml',
+      line: 12,
+      content: '      - run: curl http://localhost:8080/health'
+    },
+    {
+      file: '.github/workflows/ci.yml',
+      line: 13,
+      content: '      - run: wget http://127.0.0.1:9000/ready'
+    }
+  ]);
+
+  assert.equal(
+    findings.filter((finding) => finding.kind === 'capability_echo.workflow_external_curl').length,
+    0
+  );
+});
+
+test('workflow detector skips curl lines without URL or variable references', () => {
+  const findings = detectWorkflowPermissions([
+    {
+      file: '.github/workflows/ci.yml',
+      line: 12,
+      content: '      - name: curl is required for the next step'
+    }
+  ]);
+
+  assert.equal(
+    findings.filter((finding) => finding.kind === 'capability_echo.workflow_external_curl').length,
+    0
+  );
+});
+
 test('workflow detector flags inherited reusable workflow secrets', () => {
   const findings = detectWorkflowPermissions([
     {

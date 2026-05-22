@@ -187,6 +187,9 @@ function detectExternalCurl(added) {
     if (!/\b(curl|wget|Invoke-WebRequest|fetch\s*\()/i.test(added.content)) {
         return [];
     }
+    if (!referencesExternalUrlOrVariable(added.content)) {
+        return [];
+    }
     return [
         {
             kind: 'capability_echo.workflow_external_curl',
@@ -199,6 +202,21 @@ function detectExternalCurl(added) {
             recommendation: 'Verify the URL, payload, and whether the request is necessary in CI.'
         }
     ];
+}
+function referencesExternalUrlOrVariable(content) {
+    const urls = content.match(/https?:\/\/[^\s'"`)]+/gi) ?? [];
+    for (const url of urls) {
+        if (!isLocalUrl(url)) {
+            return true;
+        }
+    }
+    if (urls.length === 0 && /\$\{?\w|\$\{\{/.test(content)) {
+        return true;
+    }
+    return false;
+}
+function isLocalUrl(url) {
+    return /^https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::\d+)?(?:[/?#]|$)/i.test(url);
 }
 function detectSecretsInherit(added) {
     if (!/^\s*secrets\s*:\s*inherit\s*(?:#.*)?$/i.test(added.content)) {

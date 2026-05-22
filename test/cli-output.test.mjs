@@ -92,3 +92,85 @@ test('clean fixture returns rating none', async () => {
   assert.equal(report.rating, 'none');
   assert.equal(report.findingCount, 0);
 });
+
+test('CLI exits 0 by default when findings exceed nothing', async () => {
+  const oldDir = join(testDir, 'fixtures', 'capability-drift', 'old');
+  const newDir = join(testDir, 'fixtures', 'capability-drift', 'new');
+
+  const result = await execFileAsync(
+    process.execPath,
+    ['dist/index.js', 'diff', '--old', oldDir, '--new', newDir, '--format', 'json'],
+    { cwd: packageRoot }
+  );
+
+  assert.equal(typeof result.stdout, 'string');
+  assert.ok(result.stdout.length > 0);
+});
+
+test('CLI --fail-on returns non-zero when rating meets threshold', async () => {
+  const oldDir = join(testDir, 'fixtures', 'capability-drift', 'old');
+  const newDir = join(testDir, 'fixtures', 'capability-drift', 'new');
+
+  const result = await execFileAsync(
+    process.execPath,
+    [
+      'dist/index.js',
+      'diff',
+      '--old',
+      oldDir,
+      '--new',
+      newDir,
+      '--format',
+      'json',
+      '--fail-on',
+      'HIGH'
+    ],
+    { cwd: packageRoot }
+  ).then(
+    ({ stdout, stderr }) => ({ code: 0, stdout, stderr }),
+    (error) => ({
+      code: typeof error === 'object' && error && 'code' in error ? error.code : undefined,
+      stdout: typeof error === 'object' && error && 'stdout' in error ? String(error.stdout) : '',
+      stderr: typeof error === 'object' && error && 'stderr' in error ? String(error.stderr) : ''
+    })
+  );
+
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /rating critical meets fail-on threshold high/);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.rating, 'critical');
+});
+
+test('CLI --fail-on returns 0 when rating below threshold', async () => {
+  const oldDir = join(testDir, 'fixtures', 'clean', 'old');
+  const newDir = join(testDir, 'fixtures', 'clean', 'new');
+
+  const result = await execFileAsync(
+    process.execPath,
+    ['dist/index.js', 'diff', '--old', oldDir, '--new', newDir, '--format', 'json', '--fail-on', 'high'],
+    { cwd: packageRoot }
+  );
+
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.rating, 'none');
+});
+
+test('CLI rejects unknown --fail-on value', async () => {
+  const oldDir = join(testDir, 'fixtures', 'clean', 'old');
+  const newDir = join(testDir, 'fixtures', 'clean', 'new');
+
+  const result = await execFileAsync(
+    process.execPath,
+    ['dist/index.js', 'diff', '--old', oldDir, '--new', newDir, '--fail-on', 'bogus'],
+    { cwd: packageRoot }
+  ).then(
+    ({ stdout, stderr }) => ({ code: 0, stdout, stderr }),
+    (error) => ({
+      code: typeof error === 'object' && error && 'code' in error ? error.code : undefined,
+      stderr: typeof error === 'object' && error && 'stderr' in error ? String(error.stderr) : ''
+    })
+  );
+
+  assert.equal(result.code, 2);
+  assert.match(result.stderr, /Invalid --fail-on value/);
+});

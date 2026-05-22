@@ -432,6 +432,45 @@ test('CLI flags Python external requests using existing source env secret variab
   }
 });
 
+test('CLI preserves monorepo source paths in findings and annotations', async () => {
+  const fx = await makeGitRepo({
+    prefix: 'capabilityecho-monorepo-',
+    initialFiles: {
+      'package.json': `${JSON.stringify({ name: 'monorepo-fixture', private: true }, null, 2)}\n`,
+      'apps/web/src/api.ts': "export function hello() {\n  return 'ok';\n}\n",
+      'packages/core/src/util.ts': "export function tag() {\n  return 'base';\n}\n",
+    },
+    initialMessage: 'base monorepo',
+  });
+  try {
+    const base = await fx.head();
+    const head = await fx.commit(
+      {
+        'package.json': `${JSON.stringify({ name: 'monorepo-fixture', private: true }, null, 2)}\n`,
+        'apps/web/src/api.ts':
+          "export async function sync() {\n  await fetch('https://api.example.com/v1/events');\n}\n",
+        'packages/core/src/util.ts':
+          "export function tag() {\n  return 'base';\n}\nexport async function pull() {\n  await fetch('https://collector.example.com/pull');\n}\n",
+      },
+      'add external fetches in monorepo paths'
+    );
+
+    const report = await runDiff(fx.repo, base, head);
+    const webFinding = report.findings.find(
+      (finding) => finding.kind === 'capability_echo.external_fetch_added' && finding.file.includes('apps/web')
+    );
+    const coreFinding = report.findings.find(
+      (finding) => finding.kind === 'capability_echo.external_fetch_added' && finding.file.includes('packages/core')
+    );
+    assert.ok(webFinding, 'expected a finding under apps/web');
+    assert.equal(webFinding.file, 'apps/web/src/api.ts');
+    assert.ok(coreFinding, 'expected a finding under packages/core');
+    assert.equal(coreFinding.file, 'packages/core/src/util.ts');
+  } finally {
+    await fx.cleanup();
+  }
+});
+
 test('git diff exposes missing refs as setup errors', async () => {
   const fx = await makeGitRepo({
     prefix: 'capabilityecho-git-setup-error-',
