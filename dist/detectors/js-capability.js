@@ -33,7 +33,7 @@ function collectSecretVariables(lines, newFileContents) {
     return varsByFile;
 }
 function addSecretVariable(varsByFile, file, content) {
-    const match = content.match(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*process\.env\.[A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*\b/i);
+    const match = content.match(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*process\.env(?:\.[A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*\b|\[\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"]\s*\])/i);
     if (!match) {
         return;
     }
@@ -87,7 +87,7 @@ function isExternalHttpRequest(content) {
         /(?:https?:\/\/|['"]https?:\/\/)/i.test(content));
 }
 function referencesEnvSecret(content) {
-    return /\bprocess\.env\.[A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*\b/i.test(content);
+    return /\bprocess\.env(?:\.[A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*\b|\[\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"]\s*\])/i.test(content);
 }
 function referencesSecretVariable(content, secretVariables) {
     return [...secretVariables].some((name) => new RegExp(String.raw `\b${escapeRegExp(name)}\b`).test(content));

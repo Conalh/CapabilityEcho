@@ -45,7 +45,7 @@ function collectSecretVariables(lines: AddedLine[], newFileContents: Record<stri
 
 function addSecretVariable(varsByFile: Map<string, Set<string>>, file: string, content: string): void {
   const match = content.match(
-    /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*process\.env\.[A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*\b/i
+    /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*process\.env(?:\.[A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*\b|\[\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"]\s*\])/i
   );
   if (!match) {
     return;
@@ -113,7 +113,7 @@ function isExternalHttpRequest(content: string): boolean {
 }
 
 function referencesEnvSecret(content: string): boolean {
-  return /\bprocess\.env\.[A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*\b/i.test(content);
+  return /\bprocess\.env(?:\.[A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*\b|\[\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"]\s*\])/i.test(content);
 }
 
 function referencesSecretVariable(content: string, secretVariables: Set<string>): boolean {
