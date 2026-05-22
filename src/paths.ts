@@ -1,3 +1,5 @@
+import type { FindingSurface } from './types.js';
+
 const EXCLUDED_PATHS = new Set([
   '.mcp.json',
   '.cursor/mcp.json',
@@ -22,20 +24,32 @@ export function isExcluded(relativePath: string): boolean {
 }
 
 export function isScannable(relativePath: string): boolean {
+  return surfaceForPath(relativePath) !== undefined;
+}
+
+export function surfaceForPath(relativePath: string): FindingSurface | undefined {
   const normalized = normalizeRelativePath(relativePath);
   if (isExcluded(normalized)) {
-    return false;
+    return undefined;
   }
 
   if (normalized === 'package.json' || normalized.endsWith('/package.json')) {
-    return true;
+    return 'package';
   }
 
   if (normalized.startsWith('.github/workflows/') && /\.(ya?ml)$/i.test(normalized)) {
-    return true;
+    return 'workflow';
   }
 
-  return /\.(js|jsx|ts|tsx|mjs|cjs|py|pyw)$/i.test(normalized);
+  if (isDockerfile(normalized)) {
+    return 'container';
+  }
+
+  if (isJsFile(normalized) || isPyFile(normalized) || isShellFile(normalized)) {
+    return 'source';
+  }
+
+  return undefined;
 }
 
 export function isTestFile(relativePath: string): boolean {
@@ -79,4 +93,15 @@ export function isJsFile(relativePath: string): boolean {
 export function isPyFile(relativePath: string): boolean {
   const normalized = normalizeRelativePath(relativePath);
   return /\.(py|pyw)$/i.test(normalized);
+}
+
+export function isShellFile(relativePath: string): boolean {
+  const normalized = normalizeRelativePath(relativePath);
+  return /\.(sh|bash|zsh|ps1|psm1)$/i.test(normalized);
+}
+
+export function isDockerfile(relativePath: string): boolean {
+  const normalized = normalizeRelativePath(relativePath);
+  const name = normalized.split('/').pop() ?? normalized;
+  return /^Dockerfile(?:\..+)?$/i.test(name);
 }

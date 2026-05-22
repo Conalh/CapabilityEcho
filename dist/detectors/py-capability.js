@@ -4,19 +4,48 @@ import { isCommentLine, isPyFile, isTestFile } from '../paths.js';
 // reach by adding a `requests.post`, a `subprocess.Popen`, or an `eval`
 // without ever touching .mcp.json or .claude/settings.json. These are
 // the same shapes detect-js-capability flags for the JS world.
-export function detectPyCapability(lines) {
+export function detectPyCapability(lines, newFileContents = {}) {
     const findings = [];
+    const secretVarsByFile = collectSecretVariables(lines, newFileContents);
     for (const added of lines) {
         if (!isPyFile(added.file) || isCommentLine(added.content)) {
             continue;
         }
         const testFile = isTestFile(added.file);
         findings.push(...detectPyNetwork(added, testFile));
+        findings.push(...detectPySecretExfil(added, testFile, secretVarsByFile.get(added.file) ?? new Set()));
         findings.push(...detectPySubprocess(added, testFile));
         findings.push(...detectPyDynamicExec(added, testFile));
         findings.push(...detectPyUnsafeDeserialize(added, testFile));
     }
     return findings;
+}
+function collectSecretVariables(lines, newFileContents) {
+    const varsByFile = new Map();
+    for (const added of lines) {
+        if (!isPyFile(added.file)) {
+            continue;
+        }
+        addSecretVariable(varsByFile, added.file, added.content);
+    }
+    for (const [file, content] of Object.entries(newFileContents)) {
+        if (!isPyFile(file)) {
+            continue;
+        }
+        for (const line of content.split(/\r?\n/)) {
+            addSecretVariable(varsByFile, file, line);
+        }
+    }
+    return varsByFile;
+}
+function addSecretVariable(varsByFile, file, content) {
+    const match = content.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:os\.environ\s*(?:\[\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"]\s*\]|\.get\s*\(\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"])|os\.getenv\s*\(\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"])/i);
+    if (!match) {
+        return;
+    }
+    const vars = varsByFile.get(file) ?? new Set();
+    vars.add(match[1]);
+    varsByFile.set(file, vars);
 }
 function detectPyNetwork(added, testFile) {
     // Common network entry points across requests, httpx, aiohttp, and the
@@ -35,6 +64,7 @@ function detectPyNetwork(added, testFile) {
     return [
         {
             kind: 'external_fetch_added',
+            surface: 'source',
             severity: testFile ? 'low' : 'medium',
             file: added.file,
             line: added.line,
@@ -43,6 +73,38 @@ function detectPyNetwork(added, testFile) {
             recommendation: 'Review the endpoint, request payload, and whether the call belongs in this change.'
         }
     ];
+}
+function detectPySecretExfil(added, testFile, secretVariables) {
+    if (!isPyExternalRequest(added.content) ||
+        (!referencesPyEnvSecret(added.content) && !referencesSecretVariable(added.content, secretVariables))) {
+        return [];
+    }
+    return [
+        {
+            kind: 'source_secret_exfil_pattern',
+            surface: 'source',
+            severity: testFile ? 'medium' : 'high',
+            file: added.file,
+            line: added.line,
+            subject: 'Source secret exfiltration pattern (Python)',
+            message: 'Added Python sends environment-secret-shaped data to an external endpoint.',
+            recommendation: 'Do not send env secrets to external services unless the endpoint and payload are explicitly required.'
+        }
+    ];
+}
+function isPyExternalRequest(content) {
+    return (/\b(?:requests|httpx)\.(?:get|post|put|delete|patch|head|options|request)\s*\(|\burllib(?:2)?\.(?:request\.)?urlopen\s*\(|\burlopen\s*\(|\burllib\.request\.urlretrieve\s*\(|\baiohttp\.ClientSession\s*\(/i.test(content) &&
+        /(?:https?:\/\/|['"]https?:\/\/)/i.test(content));
+}
+function referencesPyEnvSecret(content) {
+    return (/\bos\.environ\s*(?:\[\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"]\s*\]|\.get\s*\(\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"])/i.test(content) ||
+        /\bos\.getenv\s*\(\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"]/i.test(content));
+}
+function referencesSecretVariable(content, secretVariables) {
+    return [...secretVariables].some((name) => new RegExp(String.raw `\b${escapeRegExp(name)}\b`).test(content));
+}
+function escapeRegExp(value) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 function detectPySubprocess(added, testFile) {
     // Subprocess and shell-execution surfaces. `commands.getoutput` is the
@@ -54,6 +116,7 @@ function detectPySubprocess(added, testFile) {
     return [
         {
             kind: 'subprocess_spawn_added',
+            surface: 'source',
             severity: testFile ? 'low' : 'high',
             file: added.file,
             line: added.line,
@@ -74,6 +137,7 @@ function detectPyDynamicExec(added, testFile) {
     return [
         {
             kind: 'dynamic_eval_added',
+            surface: 'source',
             severity: testFile ? 'medium' : 'critical',
             file: added.file,
             line: added.line,
@@ -94,6 +158,7 @@ function detectPyUnsafeDeserialize(added, testFile) {
     return [
         {
             kind: 'unsafe_deserialize_added',
+            surface: 'source',
             severity: testFile ? 'medium' : 'critical',
             file: added.file,
             line: added.line,

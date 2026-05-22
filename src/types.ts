@@ -1,7 +1,9 @@
 export type Severity = 'low' | 'medium' | 'high' | 'critical';
+export type FindingSurface = 'source' | 'package' | 'workflow' | 'container';
 
 export interface Finding {
   kind: string;
+  surface: FindingSurface;
   severity: Severity;
   file: string;
   line?: number;
@@ -19,4 +21,6 @@ export interface AddedLine {
 export interface DiffContext {
   addedLines: AddedLine[];
   changedFileCount: number;
+  scannedSurfaces: FindingSurface[];
+  newFileContents: Record<string, string>;
 }

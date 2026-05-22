@@ -27,6 +27,7 @@ function detectWritePermissions(added: AddedLine): Finding[] {
     return [
       {
         kind: 'workflow_permission_write',
+        surface: 'workflow',
         severity: 'high',
         file: added.file,
         line: added.line,
@@ -41,6 +42,7 @@ function detectWritePermissions(added: AddedLine): Finding[] {
     return [
       {
         kind: 'workflow_permission_write',
+        surface: 'workflow',
         severity: 'high',
         file: added.file,
         line: added.line,
@@ -62,6 +64,7 @@ function detectExternalCurl(added: AddedLine): Finding[] {
   return [
     {
       kind: 'workflow_external_curl',
+      surface: 'workflow',
       severity: 'medium',
       file: added.file,
       line: added.line,
@@ -85,6 +88,7 @@ function detectSecretExfil(added: AddedLine): Finding[] {
   return [
     {
       kind: 'workflow_secret_exfil_pattern',
+      surface: 'workflow',
       severity: 'high',
       file: added.file,
       line: added.line,

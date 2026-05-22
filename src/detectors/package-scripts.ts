@@ -1,7 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { configPath, isRecord, lineOfJsonKey, lineOfJsonStringValue, readJsonObjectWithSource } from '../discovery.js';
-import { listPackageJsonFiles, readFileAtGitRef } from '../git-diff.js';
+import { listGitChangedFiles, listPackageJsonFiles, readFileAtGitRef } from '../git-diff.js';
+import { isPackageJsonFile } from '../paths.js';
 import type { Finding } from '../types.js';
 
 const LIFECYCLE_KEYS = ['postinstall', 'preinstall', 'prepare', 'install'] as const;
@@ -28,18 +29,7 @@ export async function detectPackageScripts(mode: PackageDiffMode): Promise<Findi
 }
 
 export async function listChangedPackageJsonFiles(repo: string, base: string, head: string): Promise<string[]> {
-  const all = await listPackageJsonFiles(repo);
-  const changed: string[] = [];
-
-  for (const file of all) {
-    const oldText = await readFileAtGitRef(repo, base, file);
-    const newText = await readFileAtGitRef(repo, head, file);
-    if (oldText !== newText) {
-      changed.push(file);
-    }
-  }
-
-  return changed;
+  return (await listGitChangedFiles(repo, base, head)).filter(isPackageJsonFile);
 }
 
 async function readScriptsAt(
@@ -106,6 +96,7 @@ function compareScripts(
     const line = lineOfJsonKey(newText, key) ?? lineOfJsonStringValue(newText, newValue);
     findings.push({
       kind: 'lifecycle_script_added',
+      surface: 'package',
       severity: 'high',
       file,
       line,
@@ -140,6 +131,7 @@ function analyzeScriptContent(file: string, key: string, script: string, newText
   if (/(?:curl[^\n|]*\|\s*(?:ba)?sh|wget[^\n|]*\|\s*sh|Invoke-Expression|iex\s*\()/i.test(script)) {
     findings.push({
       kind: 'script_pipe_to_shell',
+      surface: 'package',
       severity: 'critical',
       file,
       line,
@@ -152,6 +144,7 @@ function analyzeScriptContent(file: string, key: string, script: string, newText
   if (/\b(curl|wget|npm publish)\b/i.test(script) || /\bnpx\b(?![^\s]*@\d+\.\d+\.\d+)/i.test(script)) {
     findings.push({
       kind: 'script_network_command',
+      surface: 'package',
       severity: 'medium',
       file,
       line,
