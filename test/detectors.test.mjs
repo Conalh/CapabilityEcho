@@ -14,7 +14,7 @@ test('js detector flags external fetch', () => {
   ]);
 
   assert.equal(findings.length, 1);
-  assert.equal(findings[0].kind, 'external_fetch_added');
+  assert.equal(findings[0].kind, 'capability_echo.external_fetch_added');
 });
 
 test('js detector flags env secret exfiltration over external fetch', () => {
@@ -27,8 +27,8 @@ test('js detector flags env secret exfiltration over external fetch', () => {
     }
   ]);
 
-  assert.ok(findings.some((finding) => finding.kind === 'external_fetch_added'));
-  const exfilFinding = findings.find((finding) => finding.kind === 'source_secret_exfil_pattern');
+  assert.ok(findings.some((finding) => finding.kind === 'capability_echo.external_fetch_added'));
+  const exfilFinding = findings.find((finding) => finding.kind === 'capability_echo.source_secret_exfil_pattern');
   assert.ok(exfilFinding);
   assert.equal(exfilFinding.surface, 'source');
   assert.equal(exfilFinding.severity, 'high');
@@ -44,7 +44,7 @@ test('js detector downgrades test file subprocess findings', () => {
   ]);
 
   assert.equal(findings.length, 1);
-  assert.equal(findings[0].kind, 'subprocess_spawn_added');
+  assert.equal(findings[0].kind, 'capability_echo.subprocess_spawn_added');
   assert.equal(findings[0].severity, 'low');
 });
 
@@ -58,7 +58,7 @@ test('workflow detector flags write permissions', () => {
   ]);
 
   assert.equal(findings.length, 1);
-  assert.equal(findings[0].kind, 'workflow_permission_write');
+  assert.equal(findings[0].kind, 'capability_echo.workflow_permission_write');
 });
 
 test('workflow detector flags broader token write scopes', () => {
@@ -76,7 +76,7 @@ test('workflow detector flags broader token write scopes', () => {
   ]);
 
   assert.equal(findings.length, 2);
-  assert.ok(findings.every((finding) => finding.kind === 'workflow_permission_write'));
+  assert.ok(findings.every((finding) => finding.kind === 'capability_echo.workflow_permission_write'));
   assert.ok(findings.every((finding) => finding.severity === 'high'));
 });
 
@@ -90,7 +90,7 @@ test('workflow detector flags secret exfil pattern', () => {
   ]);
 
   assert.equal(findings.length, 2);
-  assert.ok(findings.some((finding) => finding.kind === 'workflow_secret_exfil_pattern'));
+  assert.ok(findings.some((finding) => finding.kind === 'capability_echo.workflow_secret_exfil_pattern'));
 });
 
 test('workflow detector flags secret-backed env vars used in external requests', () => {
@@ -107,8 +107,8 @@ test('workflow detector flags secret-backed env vars used in external requests',
     }
   ]);
 
-  assert.ok(findings.some((finding) => finding.kind === 'workflow_external_curl'));
-  const exfilFinding = findings.find((finding) => finding.kind === 'workflow_secret_exfil_pattern');
+  assert.ok(findings.some((finding) => finding.kind === 'capability_echo.workflow_external_curl'));
+  const exfilFinding = findings.find((finding) => finding.kind === 'capability_echo.workflow_secret_exfil_pattern');
   assert.ok(exfilFinding);
   assert.equal(exfilFinding.line, 21);
   assert.equal(exfilFinding.severity, 'high');
@@ -124,7 +124,7 @@ test('workflow detector flags inherited reusable workflow secrets', () => {
   ]);
 
   assert.equal(findings.length, 1);
-  assert.equal(findings[0].kind, 'workflow_secrets_inherit');
+  assert.equal(findings[0].kind, 'capability_echo.workflow_secrets_inherit');
   assert.equal(findings[0].surface, 'workflow');
   assert.equal(findings[0].severity, 'high');
   assert.match(findings[0].recommendation, /explicit/);
@@ -140,7 +140,7 @@ test('workflow detector flags Docker socket mounts', () => {
   ]);
 
   assert.equal(findings.length, 1);
-  assert.equal(findings[0].kind, 'workflow_docker_socket_mount');
+  assert.equal(findings[0].kind, 'capability_echo.workflow_docker_socket_mount');
   assert.equal(findings[0].severity, 'critical');
 });
 
@@ -154,7 +154,7 @@ test('workflow detector flags privileged containers', () => {
   ]);
 
   assert.equal(findings.length, 1);
-  assert.equal(findings[0].kind, 'workflow_privileged_container');
+  assert.equal(findings[0].kind, 'capability_echo.workflow_privileged_container');
   assert.equal(findings[0].severity, 'high');
 });
 
@@ -168,7 +168,7 @@ test('workflow detector flags pull_request_target triggers', () => {
   ]);
 
   assert.equal(findings.length, 1);
-  assert.equal(findings[0].kind, 'workflow_pull_request_target');
+  assert.equal(findings[0].kind, 'capability_echo.workflow_pull_request_target');
   assert.equal(findings[0].severity, 'high');
   assert.match(findings[0].recommendation, /pull_request/);
 });
@@ -187,7 +187,7 @@ test('workflow detector flags pull_request_target workflows that check out PR he
     }
   ]);
 
-  const checkoutFinding = findings.find((finding) => finding.kind === 'workflow_pr_head_checkout_on_target');
+  const checkoutFinding = findings.find((finding) => finding.kind === 'capability_echo.workflow_pr_head_checkout_on_target');
   assert.ok(checkoutFinding);
   assert.equal(checkoutFinding.severity, 'high');
   assert.equal(checkoutFinding.line, 21);
@@ -216,7 +216,7 @@ test('workflow detector flags self-hosted runners', () => {
   ]);
 
   assert.equal(findings.length, 1);
-  assert.equal(findings[0].kind, 'workflow_self_hosted_runner');
+  assert.equal(findings[0].kind, 'capability_echo.workflow_self_hosted_runner');
   assert.equal(findings[0].severity, 'high');
   assert.match(findings[0].message, /self-hosted/);
 });
@@ -241,7 +241,7 @@ test('workflow detector flags multiline self-hosted runner labels', () => {
   ]);
 
   assert.equal(findings.length, 1);
-  assert.equal(findings[0].kind, 'workflow_self_hosted_runner');
+  assert.equal(findings[0].kind, 'capability_echo.workflow_self_hosted_runner');
   assert.equal(findings[0].line, 13);
 });
 
@@ -255,7 +255,7 @@ test('workflow detector flags mutable third-party action refs', () => {
   ]);
 
   assert.equal(findings.length, 1);
-  assert.equal(findings[0].kind, 'workflow_mutable_action_ref');
+  assert.equal(findings[0].kind, 'capability_echo.workflow_mutable_action_ref');
   assert.equal(findings[0].surface, 'workflow');
   assert.equal(findings[0].severity, 'medium');
   assert.match(findings[0].recommendation, /commit SHA/);
@@ -282,7 +282,7 @@ test('report summarizes mutable workflow action refs with a human label', () => 
   const report = createReport(
     [
       {
-        kind: 'source_secret_exfil_pattern',
+        kind: 'capability_echo.source_secret_exfil_pattern',
         surface: 'source',
         severity: 'high',
         file: 'src/api/sync.ts',
@@ -292,7 +292,7 @@ test('report summarizes mutable workflow action refs with a human label', () => 
         recommendation: 'Do not send env secrets to external services unless the endpoint and payload are explicitly required.'
       },
       {
-        kind: 'workflow_mutable_action_ref',
+        kind: 'capability_echo.workflow_mutable_action_ref',
         surface: 'workflow',
         severity: 'medium',
         file: '.github/workflows/agent.yml',
@@ -302,7 +302,7 @@ test('report summarizes mutable workflow action refs with a human label', () => 
         recommendation: 'Pin third-party actions to a reviewed commit SHA before merge.'
       },
       {
-        kind: 'workflow_pr_head_checkout_on_target',
+        kind: 'capability_echo.workflow_pr_head_checkout_on_target',
         surface: 'workflow',
         severity: 'high',
         file: '.github/workflows/agent.yml',
@@ -312,7 +312,7 @@ test('report summarizes mutable workflow action refs with a human label', () => 
         recommendation: 'Use pull_request for untrusted PR code, or avoid checking out PR head code under pull_request_target.'
       },
       {
-        kind: 'workflow_secrets_inherit',
+        kind: 'capability_echo.workflow_secrets_inherit',
         surface: 'workflow',
         severity: 'high',
         file: '.github/workflows/deploy.yml',

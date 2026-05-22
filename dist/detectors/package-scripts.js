@@ -67,7 +67,7 @@ function compareScripts(file, oldScripts, newScripts, newText) {
         }
         const line = lineOfJsonKey(newText, key) ?? lineOfJsonStringValue(newText, newValue);
         findings.push({
-            kind: 'lifecycle_script_added',
+            kind: 'capability_echo.lifecycle_script_added',
             surface: 'package',
             severity: 'high',
             file,
@@ -95,7 +95,7 @@ function analyzeScriptContent(file, key, script, newText) {
     const line = lineOfJsonStringValue(newText, script) ?? lineOfJsonKey(newText, key);
     if (/(?:curl[^\n|]*\|\s*(?:ba)?sh|wget[^\n|]*\|\s*sh|Invoke-Expression|iex\s*\()/i.test(script)) {
         findings.push({
-            kind: 'script_pipe_to_shell',
+            kind: 'capability_echo.script_pipe_to_shell',
             surface: 'package',
             severity: 'critical',
             file,
@@ -107,7 +107,7 @@ function analyzeScriptContent(file, key, script, newText) {
     }
     if (/\b(curl|wget|npm publish)\b/i.test(script) || /\bnpx\b(?![^\s]*@\d+\.\d+\.\d+)/i.test(script)) {
         findings.push({
-            kind: 'script_network_command',
+            kind: 'capability_echo.script_network_command',
             surface: 'package',
             severity: 'medium',
             file,

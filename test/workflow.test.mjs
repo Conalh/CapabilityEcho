@@ -147,7 +147,7 @@ test('JavaScript action entrypoint emits outputs, summary, and GitHub annotation
     assert.equal(jsonReport.rating, 'critical');
     assert.equal(jsonReport.findingCount, 4);
     assert.deepEqual(jsonReport.surfaceSummary, { source: 1, package: 3, workflow: 0, container: 0 });
-    assert.ok(jsonReport.findings.some((finding) => finding.kind === 'external_fetch_added'));
+    assert.ok(jsonReport.findings.some((finding) => finding.kind === 'capability_echo.external_fetch_added'));
     assert.match(summary, /# CapabilityEcho capability drift: CRITICAL/);
     assert.match(summary, /## Top recommendations/);
     assert.match(stdout, /::warning file=src\/client\.ts,line=2/);

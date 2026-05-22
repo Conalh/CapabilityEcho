@@ -78,7 +78,7 @@ function detectWritePermissions(added: AddedLine): Finding[] {
   if (githubTokenWritePermissionPattern.test(content)) {
     return [
       {
-        kind: 'workflow_permission_write',
+        kind: 'capability_echo.workflow_permission_write',
         surface: 'workflow',
         severity: 'high',
         file: added.file,
@@ -93,7 +93,7 @@ function detectWritePermissions(added: AddedLine): Finding[] {
   if (/^\s*permissions\s*:\s*(?:write|write-all|admin)\b/i.test(content)) {
     return [
       {
-        kind: 'workflow_permission_write',
+        kind: 'capability_echo.workflow_permission_write',
         surface: 'workflow',
         severity: 'high',
         file: added.file,
@@ -115,7 +115,7 @@ function detectPullRequestTarget(added: AddedLine): Finding[] {
 
   return [
     {
-      kind: 'workflow_pull_request_target',
+      kind: 'capability_echo.workflow_pull_request_target',
       surface: 'workflow',
       severity: 'high',
       file: added.file,
@@ -134,7 +134,7 @@ function detectPullRequestHeadCheckoutOnTarget(added: AddedLine, hasPullRequestT
 
   return [
     {
-      kind: 'workflow_pr_head_checkout_on_target',
+      kind: 'capability_echo.workflow_pr_head_checkout_on_target',
       surface: 'workflow',
       severity: 'high',
       file: added.file,
@@ -168,7 +168,7 @@ function detectSelfHostedRunner(added: AddedLine): Finding[] {
 
   return [
     {
-      kind: 'workflow_self_hosted_runner',
+      kind: 'capability_echo.workflow_self_hosted_runner',
       surface: 'workflow',
       severity: 'high',
       file: added.file,
@@ -198,7 +198,7 @@ function detectMutableActionRef(added: AddedLine): Finding[] {
 
   return [
     {
-      kind: 'workflow_mutable_action_ref',
+      kind: 'capability_echo.workflow_mutable_action_ref',
       surface: 'workflow',
       severity: 'medium',
       file: added.file,
@@ -229,7 +229,7 @@ function detectExternalCurl(added: AddedLine): Finding[] {
 
   return [
     {
-      kind: 'workflow_external_curl',
+      kind: 'capability_echo.workflow_external_curl',
       surface: 'workflow',
       severity: 'medium',
       file: added.file,
@@ -248,7 +248,7 @@ function detectSecretsInherit(added: AddedLine): Finding[] {
 
   return [
     {
-      kind: 'workflow_secrets_inherit',
+      kind: 'capability_echo.workflow_secrets_inherit',
       surface: 'workflow',
       severity: 'high',
       file: added.file,
@@ -274,7 +274,7 @@ function detectSecretExfil(added: AddedLine, secretEnvVars: Set<string>): Findin
 
   return [
     {
-      kind: 'workflow_secret_exfil_pattern',
+      kind: 'capability_echo.workflow_secret_exfil_pattern',
       surface: 'workflow',
       severity: 'high',
       file: added.file,
@@ -301,7 +301,7 @@ function detectDockerHostControl(added: AddedLine): Finding[] {
 
   if (/\/var\/run\/docker\.sock(?::\/var\/run\/docker\.sock)?/i.test(content)) {
     findings.push({
-      kind: 'workflow_docker_socket_mount',
+      kind: 'capability_echo.workflow_docker_socket_mount',
       surface: 'workflow',
       severity: 'critical',
       file: added.file,
@@ -314,7 +314,7 @@ function detectDockerHostControl(added: AddedLine): Finding[] {
 
   if (/\bdocker\s+run\b.*\s--privileged(?:\s|$)/i.test(content)) {
     findings.push({
-      kind: 'workflow_privileged_container',
+      kind: 'capability_echo.workflow_privileged_container',
       surface: 'workflow',
       severity: 'high',
       file: added.file,

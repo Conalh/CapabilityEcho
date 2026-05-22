@@ -12,7 +12,7 @@ test('shell: curl piped to bash is critical capability drift', () => {
     line('scripts/bootstrap.sh', 'curl https://install.example.com/agent.sh | bash')
   ]);
 
-  const finding = findings.find((item) => item.kind === 'shell_pipe_to_shell');
+  const finding = findings.find((item) => item.kind === 'capability_echo.shell_pipe_to_shell');
   assert.ok(finding);
   assert.equal(finding.severity, 'critical');
   assert.equal(finding.surface, 'source');
@@ -28,7 +28,7 @@ test('shell: literal external download is medium capability drift', () => {
     line('scripts/fetch-model.sh', 'wget https://models.example.com/latest.bin -O model.bin')
   ]);
 
-  const finding = findings.find((item) => item.kind === 'shell_external_download');
+  const finding = findings.find((item) => item.kind === 'capability_echo.shell_external_download');
   assert.ok(finding);
   assert.equal(finding.severity, 'medium');
 });

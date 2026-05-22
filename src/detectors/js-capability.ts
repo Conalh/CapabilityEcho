@@ -71,7 +71,7 @@ function detectFetch(added: AddedLine, testFile: boolean): Finding[] {
 
   return [
     {
-      kind: 'external_fetch_added',
+      kind: 'capability_echo.external_fetch_added',
       surface: 'source',
       severity: testFile ? 'low' : 'medium',
       file: added.file,
@@ -93,7 +93,7 @@ function detectSecretExfil(added: AddedLine, testFile: boolean, secretVariables:
 
   return [
     {
-      kind: 'source_secret_exfil_pattern',
+      kind: 'capability_echo.source_secret_exfil_pattern',
       surface: 'source',
       severity: testFile ? 'medium' : 'high',
       file: added.file,
@@ -133,7 +133,7 @@ function detectSubprocess(added: AddedLine, testFile: boolean): Finding[] {
 
   return [
     {
-      kind: 'subprocess_spawn_added',
+      kind: 'capability_echo.subprocess_spawn_added',
       surface: 'source',
       severity: testFile ? 'low' : 'high',
       file: added.file,
@@ -152,7 +152,7 @@ function detectDynamicEval(added: AddedLine, testFile: boolean): Finding[] {
 
   return [
     {
-      kind: 'dynamic_eval_added',
+      kind: 'capability_echo.dynamic_eval_added',
       surface: 'source',
       severity: testFile ? 'medium' : 'critical',
       file: added.file,
