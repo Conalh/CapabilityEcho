@@ -26,14 +26,28 @@ export function detectPyCapability(lines: AddedLine[], newFileContents: Record<s
   return findings;
 }
 
+interface PyEnvAliases {
+  getenv: Set<string>;
+  environ: Set<string>;
+}
+
 function collectSecretVariables(lines: AddedLine[], newFileContents: Record<string, string>): Map<string, Set<string>> {
   const varsByFile = new Map<string, Set<string>>();
+  const aliasesByFile = new Map<string, PyEnvAliases>();
+  for (const [file, content] of Object.entries(newFileContents)) {
+    if (!isPyFile(file)) {
+      continue;
+    }
+
+    aliasesByFile.set(file, parseEnvImportAliases(content));
+  }
+
   for (const added of lines) {
     if (!isPyFile(added.file)) {
       continue;
     }
 
-    addSecretVariable(varsByFile, added.file, added.content);
+    addSecretVariable(varsByFile, added.file, added.content, aliasesByFile.get(added.file) ?? defaultAliases());
   }
 
   for (const [file, content] of Object.entries(newFileContents)) {
@@ -41,18 +55,53 @@ function collectSecretVariables(lines: AddedLine[], newFileContents: Record<stri
       continue;
     }
 
+    const aliases = aliasesByFile.get(file) ?? defaultAliases();
     for (const line of content.split(/\r?\n/)) {
-      addSecretVariable(varsByFile, file, line);
+      addSecretVariable(varsByFile, file, line, aliases);
     }
   }
 
   return varsByFile;
 }
 
-function addSecretVariable(varsByFile: Map<string, Set<string>>, file: string, content: string): void {
-  const match = content.match(
-    /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:(?:os\.)?environ\s*(?:\[\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"]\s*\]|\.get\s*\(\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"])|(?:os\.)?getenv\s*\(\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"])/i
+function defaultAliases(): PyEnvAliases {
+  return { getenv: new Set(['getenv']), environ: new Set(['environ']) };
+}
+
+function parseEnvImportAliases(content: string): PyEnvAliases {
+  const aliases = defaultAliases();
+  for (const line of content.split(/\r?\n/)) {
+    const match = line.match(/^\s*from\s+os\s+import\s+(.+?)(?:\s*#.*)?$/);
+    if (!match) {
+      continue;
+    }
+
+    for (const part of match[1].split(',')) {
+      const named = part.match(/\s*(getenv|environ)(?:\s+as\s+([A-Za-z_][\w]*))?\s*/);
+      if (named) {
+        aliases[named[1] as 'getenv' | 'environ'].add(named[2] ?? named[1]);
+      }
+    }
+  }
+
+  return aliases;
+}
+
+function addSecretVariable(
+  varsByFile: Map<string, Set<string>>,
+  file: string,
+  content: string,
+  aliases: PyEnvAliases
+): void {
+  const getenvUnion = [...aliases.getenv].map(escapeRegExp).join('|');
+  const environUnion = [...aliases.environ].map(escapeRegExp).join('|');
+  const secretName = '[A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*';
+  const pattern = new RegExp(
+    String.raw`^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:(?:os\.)?(?:${environUnion})\s*(?:\[\s*['"]${secretName}['"]\s*\]|\.get\s*\(\s*['"]${secretName}['"])|(?:os\.)?(?:${getenvUnion})\s*\(\s*['"]${secretName}['"])`,
+    'i'
   );
+
+  const match = content.match(pattern);
   if (!match) {
     return;
   }

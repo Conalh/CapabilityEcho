@@ -128,7 +128,12 @@ function hasPullRequestTargetWorkflow(content) {
     return content.split(/\r?\n/).some(isPullRequestTargetLine);
 }
 function referencesPullRequestHead(content) {
-    return /github\.event\.pull_request\.head\.(?:sha|ref|repo\.full_name)/i.test(content);
+    if (/github\.event\.pull_request\.head\.(?:sha|ref|repo\.full_name|repo\.clone_url)/i.test(content)) {
+        return true;
+    }
+    // refs/pull/<n>/merge resolves to PR-authored code merged into base; running
+    // it under pull_request_target gives untrusted PR code elevated context.
+    return /\brefs\/pull\/.+?\/merge\b/i.test(content);
 }
 function detectSelfHostedRunner(added) {
     if (!/^\s*runs-on\s*:\s*(?:.*\bself-hosted\b|.*\[\s*self-hosted\b)/i.test(added.content) &&

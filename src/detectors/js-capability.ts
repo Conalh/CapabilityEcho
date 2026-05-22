@@ -44,15 +44,41 @@ function collectSecretVariables(lines: AddedLine[], newFileContents: Record<stri
 }
 
 function addSecretVariable(varsByFile: Map<string, Set<string>>, file: string, content: string): void {
-  const match = content.match(
+  const directMatch = content.match(
     /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*process\.env(?:\.[A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*\b|\[\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"]\s*\])/i
   );
-  if (!match) {
+  if (directMatch) {
+    addVariable(varsByFile, file, directMatch[1]);
     return;
   }
 
+  // Destructuring: const { API_TOKEN, GITHUB_SECRET: gh } = process.env
+  const destructureMatch = content.match(/\b(?:const|let|var)\s+\{([^}]+)\}\s*=\s*process\.env\b/i);
+  if (!destructureMatch) {
+    return;
+  }
+
+  for (const part of destructureMatch[1].split(',')) {
+    const renamed = part.match(/\s*([A-Za-z_$][\w$]*)\s*:\s*([A-Za-z_$][\w$]*)\s*/);
+    if (renamed && isSecretShapedName(renamed[1])) {
+      addVariable(varsByFile, file, renamed[2]);
+      continue;
+    }
+
+    const bare = part.match(/\s*([A-Za-z_$][\w$]*)\s*/);
+    if (bare && isSecretShapedName(bare[1])) {
+      addVariable(varsByFile, file, bare[1]);
+    }
+  }
+}
+
+function isSecretShapedName(name: string): boolean {
+  return /^[A-Z_][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*$/i.test(name);
+}
+
+function addVariable(varsByFile: Map<string, Set<string>>, file: string, name: string): void {
   const vars = varsByFile.get(file) ?? new Set<string>();
-  vars.add(match[1]);
+  vars.add(name);
   varsByFile.set(file, vars);
 }
 
