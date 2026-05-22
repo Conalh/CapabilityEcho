@@ -19,10 +19,10 @@ export async function runCapabilityDiff(options) {
         detectPackageDeps(packageMode)
     ]);
     const findings = [
-        ...detectWorkflowPermissions(context.addedLines),
+        ...detectWorkflowPermissions(context.addedLines, context.newFileContents),
         ...detectDockerfileCapability(context.addedLines),
-        ...detectJsCapability(context.addedLines),
-        ...detectPyCapability(context.addedLines),
+        ...detectJsCapability(context.addedLines, context.newFileContents),
+        ...detectPyCapability(context.addedLines, context.newFileContents),
         ...detectShellCapability(context.addedLines),
         ...scriptFindings,
         ...depFindings

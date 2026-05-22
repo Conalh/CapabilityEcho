@@ -20,17 +20,33 @@ inputs:
     required: false
     default: ''
   fail-on:
-    description: Severity that fails the action. Use none, low, medium, high, or critical.
+    description: Severity that fails the action. Use none, low, medium, high, or critical. Case-insensitive.
     required: false
     default: none
 
 outputs:
   rating:
     description: Highest CapabilityEcho capability drift rating.
+  has-findings:
+    description: Whether CapabilityEcho found at least one capability drift finding.
   finding-count:
     description: Total CapabilityEcho findings in the diff.
   changed-file-count:
     description: Number of changed scannable files in the diff.
+  surface-summary:
+    description: JSON object with finding counts by executable surface.
+  severity-summary:
+    description: JSON object with finding counts by severity.
+  capability-summary:
+    description: JSON array of human-readable capability signal labels found in the diff.
+  top-recommendations:
+    description: JSON array of the highest-priority recommendations for the diff.
+  adoption-evidence:
+    description: Redacted JSON rollup for sharing in team feedback; excludes file paths and raw findings.
+  report-markdown:
+    description: Full Markdown CapabilityEcho report, suitable for PR comments or downstream archival.
+  report-json:
+    description: Full JSON CapabilityEcho report, suitable for local artifacts, dashboards, or downstream policy tooling.
 
 runs:
   using: node24

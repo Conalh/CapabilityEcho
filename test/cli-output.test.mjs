@@ -28,6 +28,13 @@ test('CLI emits JSON capability drift report', async () => {
   assert.ok(report.findings.some((finding) => finding.kind === 'lifecycle_script_added'));
   assert.ok(report.findings.some((finding) => finding.kind === 'script_pipe_to_shell'));
   assert.ok(report.findings.some((finding) => finding.kind === 'workflow_permission_write'));
+  assert.deepEqual(report.surfaceSummary, { source: 1, package: 3, workflow: 2, container: 0 });
+  assert.deepEqual(report.severitySummary, { critical: 1, high: 2, medium: 3, low: 0 });
+  assert.deepEqual(report.topRecommendations, [
+    'Replace remote pipe-to-shell patterns with pinned, reviewable install steps.',
+    'Use the narrowest permission scope required for this job.',
+    'Review lifecycle scripts carefully; they run automatically on install.'
+  ]);
 });
 
 test('CLI emits Markdown capability summary', async () => {
@@ -41,7 +48,17 @@ test('CLI emits Markdown capability summary', async () => {
   );
 
   assert.match(stdout, /# CapabilityEcho capability drift: CRITICAL/);
+  assert.match(stdout, /## Top recommendations/);
+  assert.match(stdout, /- Replace remote pipe-to-shell patterns with pinned, reviewable install steps\./);
+  assert.match(stdout, /- Use the narrowest permission scope required for this job\./);
+  assert.ok(stdout.indexOf('## Top recommendations') < stdout.indexOf('## Review summary'));
   assert.match(stdout, /Capability summary/);
+  assert.match(stdout, /\| Surface \| Findings \|/);
+  assert.match(stdout, /\| source code \| 1 \|/);
+  assert.match(stdout, /\| package manifests \| 3 \|/);
+  assert.match(stdout, /\| GitHub workflows \| 2 \|/);
+  assert.match(stdout, /\| container builds \| 0 \|/);
+  assert.match(stdout, /\| Critical \| 1 \|/);
   assert.match(stdout, /external network fetch calls/);
   assert.match(stdout, /postinstall/);
 });
