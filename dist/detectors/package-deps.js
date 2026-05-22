@@ -51,6 +51,7 @@ function compareDeps(file, oldText, newText) {
         if (HIGH_CAPABILITY_DEPS.has(name)) {
             findings.push({
                 kind: 'high_capability_dep_added',
+                surface: 'package',
                 severity: 'high',
                 file,
                 line: lineOfJsonStringValue(newText, version) ?? lineOfJsonKey(newText, name),
@@ -63,6 +64,7 @@ function compareDeps(file, oldText, newText) {
         if (TELEMETRY_DEPS.has(name)) {
             findings.push({
                 kind: 'telemetry_dep_added',
+                surface: 'package',
                 severity: 'medium',
                 file,
                 line: lineOfJsonStringValue(newText, version) ?? lineOfJsonKey(newText, name),

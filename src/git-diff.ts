@@ -2,25 +2,41 @@ import { execFile } from 'node:child_process';
 import { readdir, readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { promisify } from 'node:util';
-import { isScannable } from './paths.js';
-import type { AddedLine, DiffContext } from './types.js';
+import { isScannable, surfaceForPath } from './paths.js';
+import type { AddedLine, DiffContext, FindingSurface } from './types.js';
 
 const execFileAsync = promisify(execFile);
+const SURFACE_ORDER: FindingSurface[] = ['source', 'package', 'workflow', 'container'];
+
+export class GitDiffSetupError extends Error {
+  constructor(
+    message: string,
+    public readonly base: string,
+    public readonly head: string
+  ) {
+    super(message);
+    this.name = 'GitDiffSetupError';
+  }
+}
 
 export async function collectDirectoryDiff(oldRoot: string, newRoot: string): Promise<DiffContext> {
   const changedFiles = await listScannableFiles(newRoot);
   const addedLines: AddedLine[] = [];
+  const changedScannableFiles = new Set<string>();
+  const newFileContents: Record<string, string> = {};
 
   for (const file of changedFiles) {
     const oldPath = join(oldRoot, file);
     const newPath = join(newRoot, file);
+    const newContent = await readFile(newPath, 'utf8');
     const patch = await runGitNoIndexDiff(oldPath, newPath);
     if (patch.trim()) {
+      changedScannableFiles.add(file);
+      newFileContents[file] = newContent;
       addedLines.push(...parseUnifiedDiff(patch, file));
       continue;
     }
 
-    const newContent = await readFile(newPath, 'utf8');
     let oldContent = '';
     try {
       oldContent = await readFile(oldPath, 'utf8');
@@ -32,6 +48,8 @@ export async function collectDirectoryDiff(oldRoot: string, newRoot: string): Pr
       continue;
     }
 
+    changedScannableFiles.add(file);
+    newFileContents[file] = newContent;
     if (!oldContent) {
       addedLines.push(...allLinesAsAdded(file, newContent));
     }
@@ -39,18 +57,27 @@ export async function collectDirectoryDiff(oldRoot: string, newRoot: string): Pr
 
   return {
     addedLines,
-    changedFileCount: countChangedFiles(addedLines)
+    changedFileCount: changedScannableFiles.size,
+    scannedSurfaces: surfacesForFiles([...changedScannableFiles]),
+    newFileContents
   };
 }
 
 export async function collectGitDiff(repo: string, base: string, head: string): Promise<DiffContext> {
-  await verifyGitRef(repo, base);
-  await verifyGitRef(repo, head);
+  const baseExists = await gitRefExists(repo, base);
+  const headExists = await gitRefExists(repo, head);
+  if (!baseExists || !headExists) {
+    throw new GitDiffSetupError(
+      `CapabilityEcho could not compare base '${base}' and head '${head}'.`,
+      base,
+      head
+    );
+  }
 
   const changedFiles = await listGitChangedFiles(repo, base, head);
   const scannableFiles = changedFiles.filter(isScannable);
   if (scannableFiles.length === 0) {
-    return { addedLines: [], changedFileCount: 0 };
+    return { addedLines: [], changedFileCount: 0, scannedSurfaces: [], newFileContents: {} };
   }
 
   const { stdout } = await execFileAsync(
@@ -58,13 +85,16 @@ export async function collectGitDiff(repo: string, base: string, head: string): 
     ['-C', repo, 'diff', '-U0', `${base}..${head}`, '--', ...scannableFiles],
     { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 }
   );
+  const newFileContents = await readChangedFilesAtRef(repo, head, scannableFiles);
 
   return {
     addedLines: parseUnifiedDiff(stdout).map((line) => ({
       ...line,
       file: normalizeGitDiffPath(line.file)
     })),
-    changedFileCount: scannableFiles.length
+    changedFileCount: scannableFiles.length,
+    scannedSurfaces: surfacesForFiles(scannableFiles),
+    newFileContents
   };
 }
 
@@ -141,7 +171,7 @@ async function listScannableFiles(root: string, current = ''): Promise<string[]>
   return files;
 }
 
-async function listGitChangedFiles(repo: string, base: string, head: string): Promise<string[]> {
+export async function listGitChangedFiles(repo: string, base: string, head: string): Promise<string[]> {
   const { stdout } = await execFileAsync(
     'git',
     ['-C', repo, 'diff', '--name-only', `${base}..${head}`],
@@ -180,12 +210,29 @@ function allLinesAsAdded(file: string, content: string): AddedLine[] {
   }));
 }
 
-function countChangedFiles(addedLines: AddedLine[]): number {
-  return new Set(addedLines.map((line) => line.file)).size;
+async function gitRefExists(repo: string, ref: string): Promise<boolean> {
+  try {
+    await execFileAsync('git', ['-C', repo, 'rev-parse', '--verify', `${ref}^{commit}`]);
+    return true;
+  } catch (error) {
+    if (isExecError(error)) {
+      return false;
+    }
+
+    throw error;
+  }
 }
 
-async function verifyGitRef(repo: string, ref: string): Promise<void> {
-  await execFileAsync('git', ['-C', repo, 'rev-parse', '--verify', `${ref}^{commit}`]);
+function surfacesForFiles(files: string[]): FindingSurface[] {
+  const surfaces = new Set<FindingSurface>();
+  for (const file of files) {
+    const surface = surfaceForPath(file);
+    if (surface) {
+      surfaces.add(surface);
+    }
+  }
+
+  return SURFACE_ORDER.filter((surface) => surfaces.has(surface));
 }
 
 function isExecError(error: unknown): error is Error & { code?: number | string; stdout?: string } {
@@ -223,6 +270,17 @@ export async function readFileAtGitRef(repo: string, ref: string, relativePath: 
 
     throw error;
   }
+}
+
+async function readChangedFilesAtRef(repo: string, ref: string, files: string[]): Promise<Record<string, string>> {
+  const entries = await Promise.all(
+    files.map(async (file) => {
+      const content = await readFileAtGitRef(repo, ref, file);
+      return content === null ? undefined : ([file, content] as const);
+    })
+  );
+
+  return Object.fromEntries(entries.filter((entry): entry is readonly [string, string] => entry !== undefined));
 }
 
 export async function listPackageJsonFiles(root: string, current = ''): Promise<string[]> {

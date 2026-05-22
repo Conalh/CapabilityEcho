@@ -18,17 +18,26 @@ export function isExcluded(relativePath) {
     return normalized.startsWith('.cursor/rules/');
 }
 export function isScannable(relativePath) {
+    return surfaceForPath(relativePath) !== undefined;
+}
+export function surfaceForPath(relativePath) {
     const normalized = normalizeRelativePath(relativePath);
     if (isExcluded(normalized)) {
-        return false;
+        return undefined;
     }
     if (normalized === 'package.json' || normalized.endsWith('/package.json')) {
-        return true;
+        return 'package';
     }
     if (normalized.startsWith('.github/workflows/') && /\.(ya?ml)$/i.test(normalized)) {
-        return true;
+        return 'workflow';
     }
-    return /\.(js|jsx|ts|tsx|mjs|cjs|py|pyw)$/i.test(normalized);
+    if (isDockerfile(normalized)) {
+        return 'container';
+    }
+    if (isJsFile(normalized) || isPyFile(normalized) || isShellFile(normalized)) {
+        return 'source';
+    }
+    return undefined;
 }
 export function isTestFile(relativePath) {
     const normalized = normalizeRelativePath(relativePath);
@@ -63,4 +72,13 @@ export function isJsFile(relativePath) {
 export function isPyFile(relativePath) {
     const normalized = normalizeRelativePath(relativePath);
     return /\.(py|pyw)$/i.test(normalized);
+}
+export function isShellFile(relativePath) {
+    const normalized = normalizeRelativePath(relativePath);
+    return /\.(sh|bash|zsh|ps1|psm1)$/i.test(normalized);
+}
+export function isDockerfile(relativePath) {
+    const normalized = normalizeRelativePath(relativePath);
+    const name = normalized.split('/').pop() ?? normalized;
+    return /^Dockerfile(?:\..+)?$/i.test(name);
 }

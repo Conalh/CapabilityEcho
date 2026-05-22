@@ -1,7 +1,9 @@
+import { detectDockerfileCapability } from './detectors/dockerfile-capability.js';
 import { detectJsCapability } from './detectors/js-capability.js';
 import { detectPackageDeps } from './detectors/package-deps.js';
 import { detectPackageScripts } from './detectors/package-scripts.js';
 import { detectPyCapability } from './detectors/py-capability.js';
+import { detectShellCapability } from './detectors/shell-capability.js';
 import { detectWorkflowPermissions } from './detectors/workflow-permissions.js';
 import { collectDirectoryDiff, collectGitDiff } from './git-diff.js';
 import { createReport, type EchoReport } from './report.js';
@@ -27,9 +29,11 @@ export async function runCapabilityDiff(options: DiffMode): Promise<EchoReport> 
   ]);
 
   const findings = [
-    ...detectWorkflowPermissions(context.addedLines),
-    ...detectJsCapability(context.addedLines),
-    ...detectPyCapability(context.addedLines),
+    ...detectWorkflowPermissions(context.addedLines, context.newFileContents),
+    ...detectDockerfileCapability(context.addedLines),
+    ...detectJsCapability(context.addedLines, context.newFileContents),
+    ...detectPyCapability(context.addedLines, context.newFileContents),
+    ...detectShellCapability(context.addedLines),
     ...scriptFindings,
     ...depFindings
   ];

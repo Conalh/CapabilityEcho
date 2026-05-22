@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { configPath, isRecord, lineOfJsonKey, lineOfJsonStringValue } from '../discovery.js';
-import { listPackageJsonFiles, readFileAtGitRef } from '../git-diff.js';
+import { listGitChangedFiles, listPackageJsonFiles, readFileAtGitRef } from '../git-diff.js';
+import { isPackageJsonFile } from '../paths.js';
 const LIFECYCLE_KEYS = ['postinstall', 'preinstall', 'prepare', 'install'];
 export async function detectPackageScripts(mode) {
     const packageFiles = mode.mode === 'directories'
@@ -16,16 +17,7 @@ export async function detectPackageScripts(mode) {
     return findings;
 }
 export async function listChangedPackageJsonFiles(repo, base, head) {
-    const all = await listPackageJsonFiles(repo);
-    const changed = [];
-    for (const file of all) {
-        const oldText = await readFileAtGitRef(repo, base, file);
-        const newText = await readFileAtGitRef(repo, head, file);
-        if (oldText !== newText) {
-            changed.push(file);
-        }
-    }
-    return changed;
+    return (await listGitChangedFiles(repo, base, head)).filter(isPackageJsonFile);
 }
 async function readScriptsAt(mode, file, side) {
     const text = await readPackageTextAt(mode, file, side);
@@ -76,6 +68,7 @@ function compareScripts(file, oldScripts, newScripts, newText) {
         const line = lineOfJsonKey(newText, key) ?? lineOfJsonStringValue(newText, newValue);
         findings.push({
             kind: 'lifecycle_script_added',
+            surface: 'package',
             severity: 'high',
             file,
             line,
@@ -103,6 +96,7 @@ function analyzeScriptContent(file, key, script, newText) {
     if (/(?:curl[^\n|]*\|\s*(?:ba)?sh|wget[^\n|]*\|\s*sh|Invoke-Expression|iex\s*\()/i.test(script)) {
         findings.push({
             kind: 'script_pipe_to_shell',
+            surface: 'package',
             severity: 'critical',
             file,
             line,
@@ -114,6 +108,7 @@ function analyzeScriptContent(file, key, script, newText) {
     if (/\b(curl|wget|npm publish)\b/i.test(script) || /\bnpx\b(?![^\s]*@\d+\.\d+\.\d+)/i.test(script)) {
         findings.push({
             kind: 'script_network_command',
+            surface: 'package',
             severity: 'medium',
             file,
             line,
