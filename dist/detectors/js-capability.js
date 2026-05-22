@@ -33,12 +33,34 @@ function collectSecretVariables(lines, newFileContents) {
     return varsByFile;
 }
 function addSecretVariable(varsByFile, file, content) {
-    const match = content.match(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*process\.env(?:\.[A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*\b|\[\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"]\s*\])/i);
-    if (!match) {
+    const directMatch = content.match(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*process\.env(?:\.[A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*\b|\[\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"]\s*\])/i);
+    if (directMatch) {
+        addVariable(varsByFile, file, directMatch[1]);
         return;
     }
+    // Destructuring: const { API_TOKEN, GITHUB_SECRET: gh } = process.env
+    const destructureMatch = content.match(/\b(?:const|let|var)\s+\{([^}]+)\}\s*=\s*process\.env\b/i);
+    if (!destructureMatch) {
+        return;
+    }
+    for (const part of destructureMatch[1].split(',')) {
+        const renamed = part.match(/\s*([A-Za-z_$][\w$]*)\s*:\s*([A-Za-z_$][\w$]*)\s*/);
+        if (renamed && isSecretShapedName(renamed[1])) {
+            addVariable(varsByFile, file, renamed[2]);
+            continue;
+        }
+        const bare = part.match(/\s*([A-Za-z_$][\w$]*)\s*/);
+        if (bare && isSecretShapedName(bare[1])) {
+            addVariable(varsByFile, file, bare[1]);
+        }
+    }
+}
+function isSecretShapedName(name) {
+    return /^[A-Z_][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*$/i.test(name);
+}
+function addVariable(varsByFile, file, name) {
     const vars = varsByFile.get(file) ?? new Set();
-    vars.add(match[1]);
+    vars.add(name);
     varsByFile.set(file, vars);
 }
 function detectFetch(added, testFile) {
