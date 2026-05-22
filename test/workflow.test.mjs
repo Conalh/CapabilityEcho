@@ -29,7 +29,7 @@ test('action.yml exposes capability drift outputs', async () => {
 test('action.yml runs the checked-in JavaScript action without installing PR-local scripts first', async () => {
   const action = await readFile(join(packageRoot, 'action.yml'), 'utf8');
 
-  assert.match(action, /runs:\s*\r?\n\s+using: node24\r?\n\s+main: dist\/action\.js/);
+  assert.match(action, /runs:\s*\r?\n\s+using: node24\r?\n\s+main: dist\/action-bundle\/index\.js/);
   assert.doesNotMatch(action, /using: composite/);
   assert.doesNotMatch(action, /npm ci/);
   assert.doesNotMatch(action, /npm run build/);
