@@ -1,19 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { detectPackageDeps } from '../dist/detectors/package-deps.js';
+import { makeOldNewFixture } from 'agent-gov-core/test-utils';
 
 async function makeFixture(oldPackage, newPackage) {
-  const root = await mkdtemp(join(tmpdir(), 'ce-deps-'));
-  const oldRoot = join(root, 'old');
-  const newRoot = join(root, 'new');
-  await mkdir(oldRoot, { recursive: true });
-  await mkdir(newRoot, { recursive: true });
-  await writeFile(join(oldRoot, 'package.json'), JSON.stringify(oldPackage, null, 2));
-  await writeFile(join(newRoot, 'package.json'), JSON.stringify(newPackage, null, 2));
-  return { root, oldRoot, newRoot };
+  const fx = await makeOldNewFixture({
+    old: { 'package.json': JSON.stringify(oldPackage, null, 2) },
+    new: { 'package.json': JSON.stringify(newPackage, null, 2) },
+  });
+  return { oldRoot: fx.old, newRoot: fx.new, cleanup: fx.cleanup };
 }
 
 test('flags newly added high-capability dep (puppeteer)', async () => {
@@ -28,7 +23,7 @@ test('flags newly added high-capability dep (puppeteer)', async () => {
     assert.equal(f.subject, 'puppeteer');
     assert.equal(f.severity, 'high');
   } finally {
-    await rm(fixture.root, { recursive: true, force: true });
+    await fixture.cleanup();
   }
 });
 
@@ -41,7 +36,7 @@ test('does not flag pre-existing deps', async () => {
     const findings = await detectPackageDeps({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
     assert.equal(findings.find((f) => f.kind === 'capability_echo.high_capability_dep_added'), undefined);
   } finally {
-    await rm(fixture.root, { recursive: true, force: true });
+    await fixture.cleanup();
   }
 });
 
@@ -56,7 +51,7 @@ test('flags telemetry dep at medium severity', async () => {
     assert.ok(f);
     assert.equal(f.severity, 'medium');
   } finally {
-    await rm(fixture.root, { recursive: true, force: true });
+    await fixture.cleanup();
   }
 });
 
@@ -70,7 +65,7 @@ test('finds deps added to devDependencies and optionalDependencies', async () =>
     assert.ok(findings.find((f) => f.subject === 'node-fetch'));
     assert.ok(findings.find((f) => f.subject === 'execa'));
   } finally {
-    await rm(fixture.root, { recursive: true, force: true });
+    await fixture.cleanup();
   }
 });
 
@@ -83,6 +78,6 @@ test('ignores benign dep additions (no false positives)', async () => {
     const findings = await detectPackageDeps({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
     assert.equal(findings.length, 0);
   } finally {
-    await rm(fixture.root, { recursive: true, force: true });
+    await fixture.cleanup();
   }
 });

