@@ -1,4 +1,4 @@
-import { isWorkflowFile } from '../paths.js';
+import { isCommentLine, isWorkflowFile } from '../paths.js';
 const githubTokenWritePermissionPattern = /^\s*(?:actions|artifact-metadata|attestations|checks|code-quality|contents|deployments|discussions|id-token|issues|packages|pages|pull-requests|security-events|statuses)\s*:\s*write\b/i;
 export function detectWorkflowPermissions(lines, newFileContents = {}) {
     const findings = [];
@@ -10,7 +10,7 @@ export function detectWorkflowPermissions(lines, newFileContents = {}) {
         }
     }
     for (const added of lines) {
-        if (!isWorkflowFile(added.file)) {
+        if (!isWorkflowFile(added.file) || isCommentLine(added.content)) {
             continue;
         }
         findings.push(...detectPullRequestTarget(added));

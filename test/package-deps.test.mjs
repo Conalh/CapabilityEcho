@@ -69,6 +69,27 @@ test('finds deps added to devDependencies and optionalDependencies', async () =>
   }
 });
 
+test('annotates the dependency key when its version string is shared with another dep', async () => {
+  const fixture = await makeFixture(
+    { name: 'app', dependencies: { lodash: '^4.0.0' } },
+    { name: 'app', dependencies: { lodash: '^4.0.0', puppeteer: '^4.0.0' } }
+  );
+  try {
+    const { readFile } = await import('node:fs/promises');
+    const { join } = await import('node:path');
+    const newPackage = await readFile(join(fixture.newRoot, 'package.json'), 'utf8');
+    const newLines = newPackage.split(/\r?\n/);
+    const puppeteerLine = newLines.findIndex((l) => l.includes('"puppeteer"')) + 1;
+
+    const findings = await detectPackageDeps({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
+    const f = findings.find((finding) => finding.subject === 'puppeteer');
+    assert.ok(f);
+    assert.equal(f.line, puppeteerLine, `expected line ${puppeteerLine} (puppeteer key), got ${f.line}`);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
 test('ignores benign dep additions (no false positives)', async () => {
   const fixture = await makeFixture(
     { name: 'app', dependencies: { lodash: '^4.0.0' } },

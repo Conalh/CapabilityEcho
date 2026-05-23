@@ -118,6 +118,7 @@ CapabilityEcho v0 detects:
 - Dynamic code execution such as `eval()` or `new Function()` in added lines.
 - **Python equivalents:** `requests`/`httpx`/`urllib` network calls (URL-gated), `subprocess`/`os.system`/`os.popen`/`pty.spawn`, `eval`/`exec`/`compile`/`__import__`/`importlib.import_module`, and unsafe deserialization (`pickle.load`, `marshal.load`, `yaml.load` without `SafeLoader`).
 - **Newly-added dependencies with high capability surface:** headless browsers (`puppeteer`, `playwright`, `cypress`), subprocess/PTY wrappers (`execa`, `cross-spawn`, `node-pty`, `shelljs`, `zx`), arbitrary HTTP clients (`node-fetch`, `undici`, `got`, `axios`), VM/eval libraries (`vm2`, `isolated-vm`), and SSH/proxy primitives. Telemetry SDKs are flagged at medium.
+- **Python dependency manifests:** added high-capability deps in `requirements.txt`, `pyproject.toml` (PEP 621 and Poetry), and `Pipfile` — HTTP clients (`requests`, `httpx`, `aiohttp`), browser automation (`playwright`, `selenium`), subprocess/SSH wrappers (`sh`, `pexpect`, `paramiko`, `fabric`), and dynamic-eval libraries.
 - GitHub Actions write permissions in added workflow lines.
 - External network requests in added workflow steps.
 - Workflow steps that combine secrets or env values with external requests.
@@ -137,8 +138,9 @@ bypassable today:
   secret variable defined elsewhere is referenced on the same line as the request.
 - **No cross-file taint.** A new call site that references a URL or secret defined
   in an existing (unchanged) file is not tainted today.
-- **No Python dependency manifests yet.** `requirements.txt`, `pyproject.toml`, and
-  `Pipfile` are not scanned. `package.json` dependency capability is.
+- **No npm lockfile coverage yet.** `package-lock.json`, `pnpm-lock.yaml`, and
+  `yarn.lock` are not scanned for transitive dependency or install-script drift.
+  `package.json` direct deps and scripts are.
 
 Bypass closures land regularly — see [`test/fixtures/bypasses/`](test/fixtures/bypasses)
 for the corpus of patterns the detector has been hardened against.

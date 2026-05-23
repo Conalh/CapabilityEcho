@@ -3,6 +3,7 @@ import { detectJsCapability } from './detectors/js-capability.js';
 import { detectPackageDeps } from './detectors/package-deps.js';
 import { detectPackageScripts } from './detectors/package-scripts.js';
 import { detectPyCapability } from './detectors/py-capability.js';
+import { detectPythonDeps } from './detectors/python-deps.js';
 import { detectShellCapability } from './detectors/shell-capability.js';
 import { detectWorkflowPermissions } from './detectors/workflow-permissions.js';
 import { collectDirectoryDiff, collectGitDiff } from './git-diff.js';
@@ -23,9 +24,10 @@ export async function runCapabilityDiff(options: DiffMode): Promise<EchoReport> 
       ? ({ mode: 'directories' as const, oldRoot: options.oldRoot, newRoot: options.newRoot })
       : ({ mode: 'git' as const, repo: options.repo, base: options.base, head: options.head });
 
-  const [scriptFindings, depFindings] = await Promise.all([
+  const [scriptFindings, depFindings, pythonDepFindings] = await Promise.all([
     detectPackageScripts(packageMode),
-    detectPackageDeps(packageMode)
+    detectPackageDeps(packageMode),
+    detectPythonDeps(packageMode)
   ]);
 
   const findings = [
@@ -35,7 +37,8 @@ export async function runCapabilityDiff(options: DiffMode): Promise<EchoReport> 
     ...detectPyCapability(context.addedLines, context.newFileContents),
     ...detectShellCapability(context.addedLines),
     ...scriptFindings,
-    ...depFindings
+    ...depFindings,
+    ...pythonDepFindings
   ];
 
   return createReport(findings, context);

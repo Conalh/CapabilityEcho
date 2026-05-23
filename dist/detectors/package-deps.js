@@ -54,7 +54,7 @@ function compareDeps(file, oldText, newText) {
                 surface: 'package',
                 severity: 'high',
                 file,
-                line: lineOfJsonStringValue(newText, version) ?? lineOfJsonKey(newText, name),
+                line: lineOfJsonKey(newText, name) ?? lineOfJsonStringValue(newText, version),
                 subject: name,
                 message: `Added dependency "${name}" can reach the network, spawn subprocesses, or evaluate code.`,
                 recommendation: 'Confirm this dependency is required for the stated change and that its usage is scoped.'
@@ -67,7 +67,7 @@ function compareDeps(file, oldText, newText) {
                 surface: 'package',
                 severity: 'medium',
                 file,
-                line: lineOfJsonStringValue(newText, version) ?? lineOfJsonKey(newText, name),
+                line: lineOfJsonKey(newText, name) ?? lineOfJsonStringValue(newText, version),
                 subject: name,
                 message: `Added telemetry/analytics dependency "${name}" — ships an outbound network surface by default.`,
                 recommendation: 'Verify the telemetry destination, payload, and opt-out posture.'

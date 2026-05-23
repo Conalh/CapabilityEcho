@@ -1,5 +1,5 @@
 import type { AddedLine, Finding } from '../types.js';
-import { isWorkflowFile } from '../paths.js';
+import { isCommentLine, isWorkflowFile } from '../paths.js';
 
 const githubTokenWritePermissionPattern =
   /^\s*(?:actions|artifact-metadata|attestations|checks|code-quality|contents|deployments|discussions|id-token|issues|packages|pages|pull-requests|security-events|statuses)\s*:\s*write\b/i;
@@ -17,7 +17,7 @@ export function detectWorkflowPermissions(lines: AddedLine[], newFileContents: R
   }
 
   for (const added of lines) {
-    if (!isWorkflowFile(added.file)) {
+    if (!isWorkflowFile(added.file) || isCommentLine(added.content)) {
       continue;
     }
 

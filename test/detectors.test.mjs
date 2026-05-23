@@ -230,6 +230,28 @@ test('workflow detector flags external curl when only a variable URL is present'
   assert.ok(findings.some((finding) => finding.kind === 'capability_echo.workflow_external_curl'));
 });
 
+test('workflow detector skips commented-out curl lines', () => {
+  const findings = detectWorkflowPermissions([
+    {
+      file: '.github/workflows/ci.yml',
+      line: 12,
+      content: '      # run: curl https://example.com/install.sh'
+    },
+    {
+      file: '.github/workflows/ci.yml',
+      line: 13,
+      content: '# contents: write'
+    },
+    {
+      file: '.github/workflows/ci.yml',
+      line: 14,
+      content: '#   pull_request_target:'
+    }
+  ]);
+
+  assert.equal(findings.length, 0);
+});
+
 test('workflow detector skips localhost curl invocations', () => {
   const findings = detectWorkflowPermissions([
     {

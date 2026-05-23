@@ -28,6 +28,9 @@ export function surfaceForPath(relativePath) {
     if (normalized === 'package.json' || normalized.endsWith('/package.json')) {
         return 'package';
     }
+    if (isPythonManifestFile(normalized)) {
+        return 'package';
+    }
     if (normalized.startsWith('.github/workflows/') && /\.(ya?ml)$/i.test(normalized)) {
         return 'workflow';
     }
@@ -64,6 +67,19 @@ export function isWorkflowFile(relativePath) {
 export function isPackageJsonFile(relativePath) {
     const normalized = normalizeRelativePath(relativePath);
     return normalized === 'package.json' || normalized.endsWith('/package.json');
+}
+export function isPythonManifestFile(relativePath) {
+    const normalized = normalizeRelativePath(relativePath);
+    const name = normalized.split('/').pop() ?? normalized;
+    if (name === 'pyproject.toml' || name === 'Pipfile') {
+        return true;
+    }
+    // requirements.txt and friends: requirements.txt, requirements-dev.txt,
+    // requirements/base.txt, requirements/dev.txt.
+    if (/^requirements(?:-[\w.-]+)?\.txt$/i.test(name)) {
+        return true;
+    }
+    return normalized.startsWith('requirements/') && name.endsWith('.txt');
 }
 export function isJsFile(relativePath) {
     const normalized = normalizeRelativePath(relativePath);
