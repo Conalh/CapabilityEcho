@@ -6,6 +6,37 @@
   "bin": {
     "capabilityecho": "./dist/index.js"
   },
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/",
+    "action.yml",
+    "AGENTS.md",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Conalh/CapabilityEcho.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Conalh/CapabilityEcho/issues"
+  },
+  "homepage": "https://github.com/Conalh/CapabilityEcho#readme",
+  "keywords": [
+    "capability-drift",
+    "agent-governance",
+    "ai-agents",
+    "pull-request",
+    "github-action",
+    "static-analysis",
+    "supply-chain"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json && npm run bundle-action",
     "bundle-action": "ncc build src/action.ts -o dist/action-bundle --minify",
