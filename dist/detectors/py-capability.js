@@ -7,18 +7,50 @@ import { isCommentLine, isPyFile, isTestFile } from '../paths.js';
 export function detectPyCapability(lines, newFileContents = {}) {
     const findings = [];
     const secretVarsByFile = collectSecretVariables(lines, newFileContents);
+    const linesByFile = groupLinesByFile(lines);
     for (const added of lines) {
         if (!isPyFile(added.file) || isCommentLine(added.content)) {
             continue;
         }
         const testFile = isTestFile(added.file);
-        findings.push(...detectPyNetwork(added, testFile));
-        findings.push(...detectPySecretExfil(added, testFile, secretVarsByFile.get(added.file) ?? new Set()));
+        const sameFile = linesByFile.get(added.file) ?? [];
+        findings.push(...detectPyNetwork(added, testFile, sameFile));
+        findings.push(...detectPySecretExfil(added, testFile, secretVarsByFile.get(added.file) ?? new Set(), sameFile));
         findings.push(...detectPySubprocess(added, testFile));
         findings.push(...detectPyDynamicExec(added, testFile));
         findings.push(...detectPyUnsafeDeserialize(added, testFile));
     }
     return findings;
+}
+function groupLinesByFile(lines) {
+    const byFile = new Map();
+    for (const line of lines) {
+        if (!isPyFile(line.file)) {
+            continue;
+        }
+        const arr = byFile.get(line.file) ?? [];
+        arr.push(line);
+        byFile.set(line.file, arr);
+    }
+    for (const arr of byFile.values()) {
+        arr.sort((left, right) => left.line - right.line);
+    }
+    return byFile;
+}
+const PY_SPLIT_LINE_LOOKAHEAD = 3;
+function nextPyLines(added, sameFile) {
+    const out = [];
+    for (let offset = 1; offset <= PY_SPLIT_LINE_LOOKAHEAD; offset += 1) {
+        const next = sameFile.find((entry) => entry.line === added.line + offset);
+        if (!next || isCommentLine(next.content)) {
+            break;
+        }
+        out.push(next);
+    }
+    return out;
+}
+function hasPyExternalUrl(content) {
+    return /(?:https?:\/\/|['"]https?:\/\/)/i.test(content);
 }
 function collectSecretVariables(lines, newFileContents) {
     const varsByFile = new Map();
@@ -78,7 +110,7 @@ function addSecretVariable(varsByFile, file, content, aliases) {
     vars.add(match[1]);
     varsByFile.set(file, vars);
 }
-function detectPyNetwork(added, testFile) {
+function detectPyNetwork(added, testFile, sameFile) {
     // Common network entry points across requests, httpx, aiohttp, and the
     // urllib family (including the Python 2 legacy `urllib2` that still
     // appears in older agent-generated code).
@@ -86,12 +118,15 @@ function detectPyNetwork(added, testFile) {
         return [];
     }
     // High-level libraries take URLs as arguments — gate on a literal external
-    // URL on the same added line to keep false positives down. Low-level
+    // URL on the same added line (or one of the next few added lines, for
+    // split-line `requests.get(\n    "https://…",\n)` constructs). Low-level
     // primitives (socket.socket, http.client.HTTPConnection) operate on host
     // strings or AF_INET pairs and do not always carry a URL, so we don't
     // require one for those.
-    if (isPyHighLevelNetwork(added.content) && !/(?:https?:\/\/|['"]https?:\/\/)/i.test(added.content)) {
-        return [];
+    if (isPyHighLevelNetwork(added.content)) {
+        if (!hasPyExternalUrl(added.content) && !nextPyLines(added, sameFile).some((line) => hasPyExternalUrl(line.content))) {
+            return [];
+        }
     }
     return [
         {
@@ -115,9 +150,15 @@ function isPyLowLevelNetwork(content) {
     // without going through requests/httpx.
     return /\bsocket\.socket\s*\(|\bsocket\.create_connection\s*\(|\bssl\.create_default_context\s*\(|\bhttp\.client\.(?:HTTPSConnection|HTTPConnection)\s*\(|\bhttplib\.(?:HTTPS?Connection)\s*\(|\bftplib\.FTP(?:_TLS)?\s*\(|\bsmtplib\.SMTP(?:_SSL)?\s*\(|\btelnetlib\.Telnet\s*\(|\bparamiko\.(?:SSHClient|Transport)\s*\(|\basyncio\.open_connection\s*\(/i.test(content);
 }
-function detectPySecretExfil(added, testFile, secretVariables) {
-    if (!isPyExternalRequest(added.content) ||
-        (!referencesPyEnvSecret(added.content) && !referencesSecretVariable(added.content, secretVariables))) {
+function detectPySecretExfil(added, testFile, secretVariables, sameFile) {
+    if (!isPyExternalRequest(added, sameFile)) {
+        return [];
+    }
+    // Secret references can live on the call line OR on continuation lines for
+    // split-line `requests.post(\n   url,\n   headers={..secrets..})` calls.
+    const chunk = [added, ...nextPyLines(added, sameFile)];
+    const hasSecret = chunk.some((line) => referencesPyEnvSecret(line.content) || referencesSecretVariable(line.content, secretVariables));
+    if (!hasSecret) {
         return [];
     }
     return [
@@ -133,8 +174,14 @@ function detectPySecretExfil(added, testFile, secretVariables) {
         }
     ];
 }
-function isPyExternalRequest(content) {
-    return (isPyHighLevelNetwork(content) && /(?:https?:\/\/|['"]https?:\/\/)/i.test(content));
+function isPyExternalRequest(added, sameFile) {
+    if (!isPyHighLevelNetwork(added.content)) {
+        return false;
+    }
+    if (hasPyExternalUrl(added.content)) {
+        return true;
+    }
+    return nextPyLines(added, sameFile).some((line) => hasPyExternalUrl(line.content));
 }
 function referencesPyEnvSecret(content) {
     return (/\b(?:os\.)?environ\s*(?:\[\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"]\s*\]|\.get\s*\(\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"])/i.test(content) ||

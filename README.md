@@ -141,11 +141,11 @@ bypassable today:
 
 - **Same-line URL requirement.** Inline network detection for *high-level*
   clients (fetch, axios, requests, httpx, urllib) gates on `https?://` (or a
-  variable substitution in workflow lines). A `fetch(` and its URL split across
-  two added lines may not flag inline. Low-level primitives (`http.client`,
-  `socket.socket`, `https.get`, `paramiko`, etc.) fire without requiring a URL
-  on the same line. Source secret exfiltration still flags when a secret variable
-  defined elsewhere is referenced on the same line as the request.
+  variable substitution in workflow lines). The detector also looks at the
+  next few added lines for a URL or secret reference, so split-line
+  `fetch(\n  'https://…',\n  …\n)` constructs are flagged. Low-level
+  primitives (`http.client`, `socket.socket`, `https.get`, `paramiko`, etc.)
+  fire without requiring a URL on the same line.
 - **No cross-file taint.** A new call site that references a URL or secret defined
   in an existing (unchanged) file is not tainted today.
 - **Partial npm lockfile coverage.** `package-lock.json` (and `npm-shrinkwrap.json`)

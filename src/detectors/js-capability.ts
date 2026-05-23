@@ -4,6 +4,7 @@ import { isCommentLine, isJsFile, isTestFile } from '../paths.js';
 export function detectJsCapability(lines: AddedLine[], newFileContents: Record<string, string> = {}): Finding[] {
   const findings: Finding[] = [];
   const secretVarsByFile = collectSecretVariables(lines, newFileContents);
+  const linesByFile = groupLinesByFile(lines);
 
   for (const added of lines) {
     if (!isJsFile(added.file) || isCommentLine(added.content)) {
@@ -11,13 +12,61 @@ export function detectJsCapability(lines: AddedLine[], newFileContents: Record<s
     }
 
     const testFile = isTestFile(added.file);
-    findings.push(...detectFetch(added, testFile));
-    findings.push(...detectSecretExfil(added, testFile, secretVarsByFile.get(added.file) ?? new Set<string>()));
+    const sameFile = linesByFile.get(added.file) ?? [];
+    findings.push(...detectFetch(added, testFile, sameFile));
+    findings.push(...detectSecretExfil(added, testFile, secretVarsByFile.get(added.file) ?? new Set<string>(), sameFile));
     findings.push(...detectSubprocess(added, testFile));
-    findings.push(...detectDynamicEval(added, testFile));
+    findings.push(...detectDynamicEval(added, testFile, sameFile));
   }
 
   return findings;
+}
+
+function groupLinesByFile(lines: AddedLine[]): Map<string, AddedLine[]> {
+  const byFile = new Map<string, AddedLine[]>();
+  for (const line of lines) {
+    if (!isJsFile(line.file)) {
+      continue;
+    }
+    const arr = byFile.get(line.file) ?? [];
+    arr.push(line);
+    byFile.set(line.file, arr);
+  }
+  // The diff layer hands us lines in source order per file already, but
+  // sort defensively so the lookahead window is reliable.
+  for (const arr of byFile.values()) {
+    arr.sort((left, right) => left.line - right.line);
+  }
+  return byFile;
+}
+
+// How many added lines forward to scan for a continuation argument like a URL
+// literal or a non-literal import specifier. 3 covers `fetch(\n  url,\n  opts\n)`
+// without picking up unrelated calls below.
+const SPLIT_LINE_LOOKAHEAD = 3;
+
+function nextLines(added: AddedLine, sameFile: AddedLine[]): AddedLine[] {
+  const out: AddedLine[] = [];
+  for (let offset = 1; offset <= SPLIT_LINE_LOOKAHEAD; offset += 1) {
+    const next = sameFile.find((entry) => entry.line === added.line + offset);
+    if (!next || isCommentLine(next.content)) {
+      // Stop at the first gap or comment — keeps the window aligned with the
+      // current call expression and avoids walking into unrelated code.
+      break;
+    }
+    out.push(next);
+  }
+  return out;
+}
+
+function hasExternalUrlInLines(lines: AddedLine[]): boolean {
+  return lines.some((entry) => /(?:https?:\/\/|['"]https?:\/\/)/i.test(entry.content));
+}
+
+function hasLocalFetchPathInLines(lines: AddedLine[]): boolean {
+  // Matches the same-origin guard for `fetch('/path')` / `axios.get('/path')`
+  // on a continuation line where the call is on the previous added line.
+  return lines.some((entry) => /^\s*['"`]\//.test(entry.content));
 }
 
 function collectSecretVariables(lines: AddedLine[], newFileContents: Record<string, string>): Map<string, Set<string>> {
@@ -82,7 +131,7 @@ function addVariable(varsByFile: Map<string, Set<string>>, file: string, name: s
   varsByFile.set(file, vars);
 }
 
-function detectFetch(added: AddedLine, testFile: boolean): Finding[] {
+function detectFetch(added: AddedLine, testFile: boolean, sameFile: AddedLine[]): Finding[] {
   // Network entry points across the JS ecosystem.
   //  - fetch / axios / got / ky / node-fetch (high-level)
   //  - http(s).get / http(s).request (Node built-in low-level)
@@ -94,14 +143,25 @@ function detectFetch(added: AddedLine, testFile: boolean): Finding[] {
     return [];
   }
 
-  if (!/(?:https?:\/\/|['"]https?:\/\/)/i.test(added.content)) {
+  const lookahead = nextLines(added, sameFile);
+  const hasUrlSameLine = /(?:https?:\/\/|['"]https?:\/\/)/i.test(added.content);
+  if (!hasUrlSameLine && !hasExternalUrlInLines(lookahead)) {
     return [];
   }
 
   // Same-origin literal paths (`fetch('/api/x')`) are not external. The other
   // clients (axios, got, http.get, etc.) require a hostname so we only need to
   // gate `fetch(`/`axios.*(` here.
-  if (/(?:fetch\s*\(\s*['"`]\/|axios\.(?:get|post|put|delete|patch|head|options|request)\s*\(\s*['"`]\/)/i.test(added.content)) {
+  if (
+    /(?:fetch\s*\(\s*['"`]\/|axios\.(?:get|post|put|delete|patch|head|options|request)\s*\(\s*['"`]\/)/i.test(added.content)
+  ) {
+    return [];
+  }
+
+  // Split-line same-origin: `fetch(` on the call line, then `'/api/x'` on the
+  // very next added line. Skip without firing.
+  const callEndsAtParen = /(?:fetch|axios\.\w+)\s*\(\s*$/i.test(added.content);
+  if (callEndsAtParen && !hasUrlSameLine && hasLocalFetchPathInLines(lookahead) && !hasExternalUrlInLines(lookahead)) {
     return [];
   }
 
@@ -119,11 +179,23 @@ function detectFetch(added: AddedLine, testFile: boolean): Finding[] {
   ];
 }
 
-function detectSecretExfil(added: AddedLine, testFile: boolean, secretVariables: Set<string>): Finding[] {
-  if (
-    !isExternalHttpRequest(added.content) ||
-    (!referencesEnvSecret(added.content) && !referencesSecretVariable(added.content, secretVariables))
-  ) {
+function detectSecretExfil(
+  added: AddedLine,
+  testFile: boolean,
+  secretVariables: Set<string>,
+  sameFile: AddedLine[]
+): Finding[] {
+  if (!isExternalHttpRequest(added, sameFile)) {
+    return [];
+  }
+
+  // Secret references can live on the call line OR on continuation lines for
+  // split-line `fetch(\n  url,\n  { headers: { Auth: env.SECRET } })` calls.
+  const chunk = [added, ...nextLines(added, sameFile)];
+  const hasSecret = chunk.some(
+    (line) => referencesEnvSecret(line.content) || referencesSecretVariable(line.content, secretVariables)
+  );
+  if (!hasSecret) {
     return [];
   }
 
@@ -141,11 +213,18 @@ function detectSecretExfil(added: AddedLine, testFile: boolean, secretVariables:
   ];
 }
 
-function isExternalHttpRequest(content: string): boolean {
-  return (
-    /(?:\bfetch\s*\(|\baxios\.(?:get|post|put|delete|patch|head|options|request)\s*\(|\bgot\s*\(|\bky\.(?:get|post|put|delete|patch|head)\s*\(|\bhttps?\.(?:get|request)\s*\(|\bundici\.(?:request|fetch|stream|pipeline)\s*\()/i.test(content) &&
-    /(?:https?:\/\/|['"]https?:\/\/)/i.test(content)
-  );
+function isExternalHttpRequest(added: AddedLine, sameFile: AddedLine[]): boolean {
+  const isCallLine = /(?:\bfetch\s*\(|\baxios\.(?:get|post|put|delete|patch|head|options|request)\s*\(|\bgot\s*\(|\bky\.(?:get|post|put|delete|patch|head)\s*\(|\bhttps?\.(?:get|request)\s*\(|\bundici\.(?:request|fetch|stream|pipeline)\s*\()/i.test(added.content);
+  if (!isCallLine) {
+    return false;
+  }
+
+  if (/(?:https?:\/\/|['"]https?:\/\/)/i.test(added.content)) {
+    return true;
+  }
+
+  // Split-line: URL is on a following added line.
+  return hasExternalUrlInLines(nextLines(added, sameFile));
 }
 
 function referencesEnvSecret(content: string): boolean {
@@ -184,20 +263,14 @@ function detectSubprocess(added: AddedLine, testFile: boolean): Finding[] {
   ];
 }
 
-function detectDynamicEval(added: AddedLine, testFile: boolean): Finding[] {
+function detectDynamicEval(added: AddedLine, testFile: boolean, sameFile: AddedLine[]): Finding[] {
   // Dynamic import() with a non-literal specifier is a "load whatever the
   // LLM names next" primitive. We approximate "non-literal" by skipping
   // calls whose argument starts with a quote — those are static and safe-ish
   // (relative imports stay sandboxed by the host). Anything else (variable,
   // template literal, expression) flags.
-  const dynamicImportMatch = added.content.match(/\bimport\s*\(\s*([^)]*)/i);
-  const dynamicImport =
-    dynamicImportMatch !== null &&
-    !/^['"`]/.test(dynamicImportMatch[1].trim()) &&
-    dynamicImportMatch[1].trim() !== '';
-
   if (
-    !dynamicImport &&
+    !isDynamicImport(added, sameFile) &&
     !/(?:\beval\s*\(|new\s+Function\s*\(|vm\.(?:runInNewContext|runInThisContext|runInContext|compileFunction)\s*\()/i.test(added.content)
   ) {
     return [];
@@ -215,4 +288,29 @@ function detectDynamicEval(added: AddedLine, testFile: boolean): Finding[] {
       recommendation: 'Avoid eval-style execution unless strictly required and heavily constrained.'
     }
   ];
+}
+
+function isDynamicImport(added: AddedLine, sameFile: AddedLine[]): boolean {
+  const sameLineMatch = added.content.match(/\bimport\s*\(\s*([^)]*)/i);
+  if (sameLineMatch && sameLineMatch[1].trim() !== '') {
+    return !/^['"`]/.test(sameLineMatch[1].trim());
+  }
+
+  // `import(` with the specifier on a following added line. Flag when the
+  // specifier doesn't start with a string literal.
+  const opensImport = /\bimport\s*\(\s*$/i.test(added.content);
+  if (!opensImport) {
+    return false;
+  }
+
+  const lookahead = nextLines(added, sameFile);
+  for (const next of lookahead) {
+    const trimmed = next.content.trim();
+    if (trimmed === '') {
+      continue;
+    }
+    return !/^['"`]/.test(trimmed);
+  }
+
+  return false;
 }

