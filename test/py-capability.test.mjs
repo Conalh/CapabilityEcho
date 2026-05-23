@@ -13,6 +13,34 @@ test('py: requests.get with literal URL flags external fetch', () => {
   assert.ok(findings.find((f) => f.kind === 'capability_echo.external_fetch_added'));
 });
 
+test('py: raw socket.socket() flags external fetch without requiring a URL', () => {
+  const findings = detectPyCapability([
+    line('agent.py', 's = socket.socket(socket.AF_INET, socket.SOCK_STREAM)')
+  ]);
+  assert.ok(findings.find((f) => f.kind === 'capability_echo.external_fetch_added'));
+});
+
+test('py: http.client.HTTPSConnection flags external fetch', () => {
+  const findings = detectPyCapability([
+    line('agent.py', 'conn = http.client.HTTPSConnection("api.example.com")')
+  ]);
+  assert.ok(findings.find((f) => f.kind === 'capability_echo.external_fetch_added'));
+});
+
+test('py: paramiko.SSHClient flags external fetch (low-level remote primitive)', () => {
+  const findings = detectPyCapability([
+    line('agent.py', 'client = paramiko.SSHClient()')
+  ]);
+  assert.ok(findings.find((f) => f.kind === 'capability_echo.external_fetch_added'));
+});
+
+test('py: asyncio.open_connection flags external fetch', () => {
+  const findings = detectPyCapability([
+    line('agent.py', 'reader, writer = await asyncio.open_connection(host, 443)')
+  ]);
+  assert.ok(findings.find((f) => f.kind === 'capability_echo.external_fetch_added'));
+});
+
 test('py: external request with env secret flags source secret exfiltration', () => {
   const findings = detectPyCapability([
     line(

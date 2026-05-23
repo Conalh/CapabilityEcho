@@ -139,16 +139,23 @@ CapabilityEcho v0 inspects added diff lines, with a full-file pass for secret-va
 collection in changed JS and Python files. A few patterns are still structurally
 bypassable today:
 
-- **Same-line URL requirement.** Inline network detection gates on `https?://` (or a
-  variable substitution in workflow lines). A `fetch(` and its URL split across two
-  added lines may not flag inline. Source secret exfiltration still flags when a
-  secret variable defined elsewhere is referenced on the same line as the request.
+- **Same-line URL requirement.** Inline network detection for *high-level*
+  clients (fetch, axios, requests, httpx, urllib) gates on `https?://` (or a
+  variable substitution in workflow lines). A `fetch(` and its URL split across
+  two added lines may not flag inline. Low-level primitives (`http.client`,
+  `socket.socket`, `https.get`, `paramiko`, etc.) fire without requiring a URL
+  on the same line. Source secret exfiltration still flags when a secret variable
+  defined elsewhere is referenced on the same line as the request.
 - **No cross-file taint.** A new call site that references a URL or secret defined
   in an existing (unchanged) file is not tainted today.
 - **Partial npm lockfile coverage.** `package-lock.json` (and `npm-shrinkwrap.json`)
   are scanned for transitive high-capability dep additions and newly-added
   packages declaring an install script. `pnpm-lock.yaml` and `yarn.lock` are not
   scanned today.
+- **Workflow scanning is line-based, not YAML-structural.** Comment lines are
+  filtered, but `run:`/`uses:`/`with:` are matched by regex rather than by
+  YAML tree position. Reasoning about workflow structure (job-level
+  permissions, `with.ref`, env precedence) is future work.
 
 Bypass closures land regularly — see [`test/fixtures/bypasses/`](test/fixtures/bypasses)
 for the corpus of patterns the detector has been hardened against.

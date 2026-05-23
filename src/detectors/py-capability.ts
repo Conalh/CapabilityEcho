@@ -115,16 +115,16 @@ function detectPyNetwork(added: AddedLine, testFile: boolean): Finding[] {
   // Common network entry points across requests, httpx, aiohttp, and the
   // urllib family (including the Python 2 legacy `urllib2` that still
   // appears in older agent-generated code).
-  const networkVerbPattern =
-    /\b(?:requests|httpx)\.(?:get|post|put|delete|patch|head|options|request)\s*\(|\burllib(?:2)?\.(?:request\.)?urlopen\s*\(|\burlopen\s*\(|\burllib\.request\.urlretrieve\s*\(|\baiohttp\.ClientSession\s*\(/i;
-  if (!networkVerbPattern.test(added.content)) {
+  if (!isPyHighLevelNetwork(added.content) && !isPyLowLevelNetwork(added.content)) {
     return [];
   }
 
-  // Gate on a literal external URL on the same added line — keeps the
-  // detector aligned with the JS side and cuts false positives from code
-  // that takes the URL from a constant defined elsewhere.
-  if (!/(?:https?:\/\/|['"]https?:\/\/)/i.test(added.content)) {
+  // High-level libraries take URLs as arguments — gate on a literal external
+  // URL on the same added line to keep false positives down. Low-level
+  // primitives (socket.socket, http.client.HTTPConnection) operate on host
+  // strings or AF_INET pairs and do not always carry a URL, so we don't
+  // require one for those.
+  if (isPyHighLevelNetwork(added.content) && !/(?:https?:\/\/|['"]https?:\/\/)/i.test(added.content)) {
     return [];
   }
 
@@ -140,6 +140,17 @@ function detectPyNetwork(added: AddedLine, testFile: boolean): Finding[] {
       recommendation: 'Review the endpoint, request payload, and whether the call belongs in this change.'
     }
   ];
+}
+
+function isPyHighLevelNetwork(content: string): boolean {
+  return /\b(?:requests|httpx)\.(?:get|post|put|delete|patch|head|options|request)\s*\(|\burllib(?:2)?\.(?:request\.)?urlopen\s*\(|\burlopen\s*\(|\burllib\.request\.urlretrieve\s*\(|\baiohttp\.(?:ClientSession|request)\s*\(/i.test(content);
+}
+
+function isPyLowLevelNetwork(content: string): boolean {
+  // Raw socket / TLS / HTTP-client primitives. These are the "did not fire
+  // in live probes" gap Codex flagged — the agent can reach the network
+  // without going through requests/httpx.
+  return /\bsocket\.socket\s*\(|\bsocket\.create_connection\s*\(|\bssl\.create_default_context\s*\(|\bhttp\.client\.(?:HTTPSConnection|HTTPConnection)\s*\(|\bhttplib\.(?:HTTPS?Connection)\s*\(|\bftplib\.FTP(?:_TLS)?\s*\(|\bsmtplib\.SMTP(?:_SSL)?\s*\(|\btelnetlib\.Telnet\s*\(|\bparamiko\.(?:SSHClient|Transport)\s*\(|\basyncio\.open_connection\s*\(/i.test(content);
 }
 
 function detectPySecretExfil(added: AddedLine, testFile: boolean, secretVariables: Set<string>): Finding[] {
@@ -166,8 +177,7 @@ function detectPySecretExfil(added: AddedLine, testFile: boolean, secretVariable
 
 function isPyExternalRequest(content: string): boolean {
   return (
-    /\b(?:requests|httpx)\.(?:get|post|put|delete|patch|head|options|request)\s*\(|\burllib(?:2)?\.(?:request\.)?urlopen\s*\(|\burlopen\s*\(|\burllib\.request\.urlretrieve\s*\(|\baiohttp\.ClientSession\s*\(/i.test(content) &&
-    /(?:https?:\/\/|['"]https?:\/\/)/i.test(content)
+    isPyHighLevelNetwork(content) && /(?:https?:\/\/|['"]https?:\/\/)/i.test(content)
   );
 }
 

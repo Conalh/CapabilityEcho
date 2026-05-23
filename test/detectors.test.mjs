@@ -140,6 +140,44 @@ test('js detector downgrades test file subprocess findings', () => {
   assert.equal(findings[0].severity, 'low');
 });
 
+test('js detector flags execFile and execFileSync', () => {
+  const findings = detectJsCapability([
+    { file: 'src/runner.ts', line: 3, content: 'execFile("git", ["status"]);' },
+    { file: 'src/runner.ts', line: 4, content: 'execFileSync("git", ["status"]);' }
+  ]);
+
+  const subprocess = findings.filter((f) => f.kind === 'capability_echo.subprocess_spawn_added');
+  assert.equal(subprocess.length, 2);
+});
+
+test('js detector flags Node http.get / https.get / https.request', () => {
+  const httpsGet = detectJsCapability([
+    { file: 'src/api.ts', line: 3, content: 'https.get("https://api.example.com/v1");' }
+  ]);
+  assert.ok(httpsGet.some((f) => f.kind === 'capability_echo.external_fetch_added'));
+
+  const httpRequest = detectJsCapability([
+    { file: 'src/api.ts', line: 5, content: 'http.request("https://internal.example.com/", { method: "POST" });' }
+  ]);
+  assert.ok(httpRequest.some((f) => f.kind === 'capability_echo.external_fetch_added'));
+});
+
+test('js detector flags dynamic import() with a non-literal specifier', () => {
+  const findings = detectJsCapability([
+    { file: 'src/loader.ts', line: 4, content: 'const mod = await import(plugin);' }
+  ]);
+
+  assert.ok(findings.some((f) => f.kind === 'capability_echo.dynamic_eval_added'));
+});
+
+test('js detector ignores static import() with a string-literal specifier', () => {
+  const findings = detectJsCapability([
+    { file: 'src/loader.ts', line: 4, content: "const mod = await import('./plugin.js');" }
+  ]);
+
+  assert.equal(findings.find((f) => f.kind === 'capability_echo.dynamic_eval_added'), undefined);
+});
+
 test('workflow detector flags write permissions', () => {
   const findings = detectWorkflowPermissions([
     {

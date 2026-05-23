@@ -64,13 +64,22 @@ function addVariable(varsByFile, file, name) {
     varsByFile.set(file, vars);
 }
 function detectFetch(added, testFile) {
-    if (!/(?:fetch\s*\(|axios\.(?:get|post|put|delete|patch|request)\s*\(|got\s*\()/i.test(added.content)) {
+    // Network entry points across the JS ecosystem.
+    //  - fetch / axios / got / ky / node-fetch (high-level)
+    //  - http(s).get / http(s).request (Node built-in low-level)
+    //  - undici.request / fetch
+    //  - new XMLHttpRequest (browser-shaped, sometimes in cross-target code)
+    const networkPattern = /(?:\bfetch\s*\(|\baxios\.(?:get|post|put|delete|patch|head|options|request)\s*\(|\bgot\s*\(|\bky\.(?:get|post|put|delete|patch|head)\s*\(|\bhttps?\.(?:get|request)\s*\(|\bundici\.(?:request|fetch|stream|pipeline)\s*\(|new\s+XMLHttpRequest\s*\()/i;
+    if (!networkPattern.test(added.content)) {
         return [];
     }
     if (!/(?:https?:\/\/|['"]https?:\/\/)/i.test(added.content)) {
         return [];
     }
-    if (/(?:fetch\s*\(\s*['"`]\/|axios\.(?:get|post|put|delete|patch|request)\s*\(\s*['"`]\/)/i.test(added.content)) {
+    // Same-origin literal paths (`fetch('/api/x')`) are not external. The other
+    // clients (axios, got, http.get, etc.) require a hostname so we only need to
+    // gate `fetch(`/`axios.*(` here.
+    if (/(?:fetch\s*\(\s*['"`]\/|axios\.(?:get|post|put|delete|patch|head|options|request)\s*\(\s*['"`]\/)/i.test(added.content)) {
         return [];
     }
     return [
@@ -105,7 +114,7 @@ function detectSecretExfil(added, testFile, secretVariables) {
     ];
 }
 function isExternalHttpRequest(content) {
-    return (/(?:fetch\s*\(|axios\.(?:get|post|put|delete|patch|request)\s*\(|got\s*\()/i.test(content) &&
+    return (/(?:\bfetch\s*\(|\baxios\.(?:get|post|put|delete|patch|head|options|request)\s*\(|\bgot\s*\(|\bky\.(?:get|post|put|delete|patch|head)\s*\(|\bhttps?\.(?:get|request)\s*\(|\bundici\.(?:request|fetch|stream|pipeline)\s*\()/i.test(content) &&
         /(?:https?:\/\/|['"]https?:\/\/)/i.test(content));
 }
 function referencesEnvSecret(content) {
@@ -118,7 +127,10 @@ function escapeRegExp(value) {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 function detectSubprocess(added, testFile) {
-    if (!/(?:child_process|execSync\s*\(|exec\s*\(|spawnSync\s*\(|spawn\s*\(|Bun\.spawn\s*\()/i.test(added.content)) {
+    // Full Node child_process API surface plus the Bun and Deno equivalents.
+    // execFile/execFileSync were missing from the v0 detector and are common
+    // in agent-generated code — closing that gap here.
+    if (!/(?:\bchild_process\b|\bexecSync\s*\(|\bexec\s*\(|\bexecFile\s*\(|\bexecFileSync\s*\(|\bspawnSync\s*\(|\bspawn\s*\(|\bfork\s*\(|\bBun\.spawn(?:Sync)?\s*\(|\bDeno\.(?:Command|run)\s*\()/i.test(added.content)) {
         return [];
     }
     return [
@@ -135,7 +147,17 @@ function detectSubprocess(added, testFile) {
     ];
 }
 function detectDynamicEval(added, testFile) {
-    if (!/(?:\beval\s*\(|new\s+Function\s*\(|vm\.runInNewContext\s*\()/i.test(added.content)) {
+    // Dynamic import() with a non-literal specifier is a "load whatever the
+    // LLM names next" primitive. We approximate "non-literal" by skipping
+    // calls whose argument starts with a quote — those are static and safe-ish
+    // (relative imports stay sandboxed by the host). Anything else (variable,
+    // template literal, expression) flags.
+    const dynamicImportMatch = added.content.match(/\bimport\s*\(\s*([^)]*)/i);
+    const dynamicImport = dynamicImportMatch !== null &&
+        !/^['"`]/.test(dynamicImportMatch[1].trim()) &&
+        dynamicImportMatch[1].trim() !== '';
+    if (!dynamicImport &&
+        !/(?:\beval\s*\(|new\s+Function\s*\(|vm\.(?:runInNewContext|runInThisContext|runInContext|compileFunction)\s*\()/i.test(added.content)) {
         return [];
     }
     return [
