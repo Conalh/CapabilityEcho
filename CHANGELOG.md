@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Under v1.0, minor versions may carry breaking changes.
 
+## [0.2.1] — 2026-05-22
+
+### Fixed
+- **Action runtime: the bundled JS Action was a no-op in CI.** When CapabilityEcho was invoked as a GitHub Action via `uses: Conalh/CapabilityEcho@v0.2.0`, Node loaded the bundle but never invoked `mainAction`: zero log output, no `report-file` written, scalar outputs empty, exit code 0. The entrypoint guard in `src/action.ts` was `process.argv[1]?.endsWith('action.js')`, which matched the tsc-compiled `dist/action.js` (used by the test suite) but not the ncc-bundled `dist/action-bundle/index.js` that `action.yml` actually points at. Replaced with an `import.meta.url`-based comparison that fires for both entrypoints. CLI behavior (`bin/capabilityecho`) and `--format` outputs are unchanged; only the Action runtime path was broken.
+
 ## [0.2.0] — 2026-05-22
 
 **BREAKING** — JSON output now emits the canonical agent-gov-core `Report` envelope so the cross-tool meta-reviewer (GovVerdict) can ingest one shape across the whole suite.

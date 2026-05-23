@@ -1,5 +1,6 @@
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { runCapabilityDiff } from './diff.js';
 import { GitDiffSetupError } from './git-diff.js';
 import { renderReport, severityRank } from './report.js';
@@ -224,6 +225,15 @@ function isRating(value) {
 function isRecord(value) {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
-if (process.argv[1]?.endsWith('action.js')) {
+// Invoke mainAction when this module is the process entrypoint. We resolve
+// `process.argv[1]` (which may be relative, e.g. `dist/action.js` from tests)
+// to an absolute path and compare against `import.meta.url` so the guard
+// fires both for the tsc-compiled `dist/action.js` and for the ncc-bundled
+// `dist/action-bundle/index.js` that the published Action runs. The previous
+// guard only matched files literally named `action.js`, which caused the
+// bundled Action to load `mainAction` but never call it — no logs, no report,
+// exit code 0. (v0.2.1 fix.)
+const entrypoint = process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+if (entrypoint) {
     process.exitCode = await mainAction();
 }
