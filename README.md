@@ -109,6 +109,12 @@ Action outputs:
 - `finding-count`: total findings in the diff
 - `changed-file-count`: number of changed scannable files in the diff
 
+Optional inputs for very large diffs:
+
+- `max-findings` (default `0` = unlimited): truncate the on-action markdown/json outputs and step summary to the top-N findings ranked by severity. `rating`, `finding-count`, and the `fail-on` decision are still computed against the full set.
+- `max-output-bytes` (default `0` = unlimited): suppress the `report-markdown` and `report-json` action outputs (only — the step summary is left intact) when they exceed this byte size, replacing them with a short notice. Useful to stay inside GitHub Actions output limits.
+- `report-file` (default empty): repo-relative or absolute path to write the **full** markdown report. A sibling `<path>.json` is also written. Pair with `actions/upload-artifact` to keep a complete record alongside a truncated PR view.
+
 ## Current Findings
 
 CapabilityEcho v0 detects:
@@ -119,6 +125,7 @@ CapabilityEcho v0 detects:
 - **Python equivalents:** `requests`/`httpx`/`urllib` network calls (URL-gated), `subprocess`/`os.system`/`os.popen`/`pty.spawn`, `eval`/`exec`/`compile`/`__import__`/`importlib.import_module`, and unsafe deserialization (`pickle.load`, `marshal.load`, `yaml.load` without `SafeLoader`).
 - **Newly-added dependencies with high capability surface:** headless browsers (`puppeteer`, `playwright`, `cypress`), subprocess/PTY wrappers (`execa`, `cross-spawn`, `node-pty`, `shelljs`, `zx`), arbitrary HTTP clients (`node-fetch`, `undici`, `got`, `axios`), VM/eval libraries (`vm2`, `isolated-vm`), and SSH/proxy primitives. Telemetry SDKs are flagged at medium.
 - **Python dependency manifests:** added high-capability deps in `requirements.txt`, `pyproject.toml` (PEP 621 and Poetry), and `Pipfile` — HTTP clients (`requests`, `httpx`, `aiohttp`), browser automation (`playwright`, `selenium`), subprocess/SSH wrappers (`sh`, `pexpect`, `paramiko`, `fabric`), and dynamic-eval libraries.
+- **npm lockfile (`package-lock.json`, `npm-shrinkwrap.json`):** transitive high-capability dep additions and newly-added packages declaring install/postinstall scripts.
 - GitHub Actions write permissions in added workflow lines.
 - External network requests in added workflow steps.
 - Workflow steps that combine secrets or env values with external requests.
@@ -138,9 +145,10 @@ bypassable today:
   secret variable defined elsewhere is referenced on the same line as the request.
 - **No cross-file taint.** A new call site that references a URL or secret defined
   in an existing (unchanged) file is not tainted today.
-- **No npm lockfile coverage yet.** `package-lock.json`, `pnpm-lock.yaml`, and
-  `yarn.lock` are not scanned for transitive dependency or install-script drift.
-  `package.json` direct deps and scripts are.
+- **Partial npm lockfile coverage.** `package-lock.json` (and `npm-shrinkwrap.json`)
+  are scanned for transitive high-capability dep additions and newly-added
+  packages declaring an install script. `pnpm-lock.yaml` and `yarn.lock` are not
+  scanned today.
 
 Bypass closures land regularly — see [`test/fixtures/bypasses/`](test/fixtures/bypasses)
 for the corpus of patterns the detector has been hardened against.

@@ -23,6 +23,21 @@ inputs:
     description: Severity that fails the action. Use none, low, medium, high, or critical. Case-insensitive.
     required: false
     default: none
+  max-findings:
+    description: |
+      If > 0, truncates the on-action markdown/json outputs and the step summary to the top-N findings ranked by severity. The full finding count, surface summary, rating, and fail-on decision are still computed against the complete set. 0 disables truncation. Use with report-file when you want both a short PR view and a full artifact.
+    required: false
+    default: '0'
+  max-output-bytes:
+    description: |
+      If > 0, suppresses the report-markdown and report-json action outputs (only — not the step summary) when they exceed this byte size, replacing them with a short notice. 0 disables. Useful to stay inside GitHub Action output limits on very large PRs.
+    required: false
+    default: '0'
+  report-file:
+    description: |
+      Optional path (absolute or repo-relative) to write the full markdown report. A sibling `<path>.json` is also written. Truncation never applies to the sidecar files, so pair this with `actions/upload-artifact` to keep a complete record alongside a truncated PR view.
+    required: false
+    default: ''
 
 outputs:
   rating:

@@ -37,7 +37,10 @@ const SUMMARY_LABELS = {
     'capability_echo.script_network_command': 'network or publish npm scripts',
     'capability_echo.high_capability_dep_added': 'high-capability dependency additions',
     'capability_echo.telemetry_dep_added': 'telemetry dependency additions',
-    'capability_echo.unsafe_deserialize_added': 'unsafe deserialization'
+    'capability_echo.unsafe_deserialize_added': 'unsafe deserialization',
+    'capability_echo.lockfile_high_capability_dep_added': 'lockfile transitive high-capability deps',
+    'capability_echo.lockfile_telemetry_dep_added': 'lockfile transitive telemetry deps',
+    'capability_echo.lockfile_install_script_added': 'lockfile transitive install scripts'
 };
 export function createReport(findings, context) {
     return {

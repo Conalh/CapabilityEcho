@@ -1,5 +1,6 @@
 import { detectDockerfileCapability } from './detectors/dockerfile-capability.js';
 import { detectJsCapability } from './detectors/js-capability.js';
+import { detectNpmLockfile } from './detectors/npm-lockfile.js';
 import { detectPackageDeps } from './detectors/package-deps.js';
 import { detectPackageScripts } from './detectors/package-scripts.js';
 import { detectPyCapability } from './detectors/py-capability.js';
@@ -24,10 +25,11 @@ export async function runCapabilityDiff(options: DiffMode): Promise<EchoReport> 
       ? ({ mode: 'directories' as const, oldRoot: options.oldRoot, newRoot: options.newRoot })
       : ({ mode: 'git' as const, repo: options.repo, base: options.base, head: options.head });
 
-  const [scriptFindings, depFindings, pythonDepFindings] = await Promise.all([
+  const [scriptFindings, depFindings, pythonDepFindings, lockfileFindings] = await Promise.all([
     detectPackageScripts(packageMode),
     detectPackageDeps(packageMode),
-    detectPythonDeps(packageMode)
+    detectPythonDeps(packageMode),
+    detectNpmLockfile(packageMode)
   ]);
 
   const findings = [
@@ -38,7 +40,8 @@ export async function runCapabilityDiff(options: DiffMode): Promise<EchoReport> 
     ...detectShellCapability(context.addedLines),
     ...scriptFindings,
     ...depFindings,
-    ...pythonDepFindings
+    ...pythonDepFindings,
+    ...lockfileFindings
   ];
 
   return createReport(findings, context);

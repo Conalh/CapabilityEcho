@@ -28,6 +28,9 @@ export function surfaceForPath(relativePath) {
     if (normalized === 'package.json' || normalized.endsWith('/package.json')) {
         return 'package';
     }
+    if (isNpmLockfile(normalized)) {
+        return 'package';
+    }
     if (isPythonManifestFile(normalized)) {
         return 'package';
     }
@@ -67,6 +70,11 @@ export function isWorkflowFile(relativePath) {
 export function isPackageJsonFile(relativePath) {
     const normalized = normalizeRelativePath(relativePath);
     return normalized === 'package.json' || normalized.endsWith('/package.json');
+}
+export function isNpmLockfile(relativePath) {
+    const normalized = normalizeRelativePath(relativePath);
+    const name = normalized.split('/').pop() ?? normalized;
+    return name === 'package-lock.json' || name === 'npm-shrinkwrap.json';
 }
 export function isPythonManifestFile(relativePath) {
     const normalized = normalizeRelativePath(relativePath);
