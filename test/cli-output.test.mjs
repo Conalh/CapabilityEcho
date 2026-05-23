@@ -27,7 +27,14 @@ test('CLI emits JSON capability drift report', async () => {
   assert.ok(report.findings.some((finding) => finding.kind === 'capability_echo.external_fetch_added'));
   assert.ok(report.findings.some((finding) => finding.kind === 'capability_echo.lifecycle_script_added'));
   assert.ok(report.findings.some((finding) => finding.kind === 'capability_echo.script_pipe_to_shell'));
-  assert.ok(report.findings.some((finding) => finding.kind === 'capability_echo.workflow_permission_write'));
+  assert.ok(
+    report.findings.some(
+      (finding) =>
+        finding.kind === 'capability_echo.workflow_permission_write' ||
+        finding.kind === 'capability_echo.workflow_workflow_level_write_permission'
+    ),
+    'expected a workflow write-permission finding (per-line or structural)'
+  );
   assert.deepEqual(report.surfaceSummary, { source: 1, package: 3, workflow: 2, container: 0 });
   assert.deepEqual(report.severitySummary, { critical: 1, high: 2, medium: 3, low: 0 });
   assert.deepEqual(report.topRecommendations, [

@@ -152,10 +152,12 @@ bypassable today:
   are scanned for transitive high-capability dep additions and newly-added
   packages declaring an install script. `pnpm-lock.yaml` and `yarn.lock` are not
   scanned today.
-- **Workflow scanning is line-based, not YAML-structural.** Comment lines are
-  filtered, but `run:`/`uses:`/`with:` are matched by regex rather than by
-  YAML tree position. Reasoning about workflow structure (job-level
-  permissions, `with.ref`, env precedence) is future work.
+- **Workflow scanning is hybrid.** A structural YAML pass reasons about
+  job-level vs workflow-level permission scope, step `env`/`with`/`uses`
+  precedence, and `secrets.*`-derived env precedence inside `run:` blocks.
+  A per-line pass backs that up for the cases where the YAML doesn't parse
+  cleanly or the finding is line-scoped (e.g. shell text inside `run:`
+  blocks where the regex still operates on the parsed string value).
 
 Bypass closures land regularly — see [`test/fixtures/bypasses/`](test/fixtures/bypasses)
 for the corpus of patterns the detector has been hardened against.

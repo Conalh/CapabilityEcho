@@ -7,6 +7,7 @@ import { detectPyCapability } from './detectors/py-capability.js';
 import { detectPythonDeps } from './detectors/python-deps.js';
 import { detectShellCapability } from './detectors/shell-capability.js';
 import { detectWorkflowPermissions } from './detectors/workflow-permissions.js';
+import { detectWorkflowStructure } from './detectors/workflow-structure.js';
 import { collectDirectoryDiff, collectGitDiff } from './git-diff.js';
 import { createReport } from './report.js';
 export async function runCapabilityDiff(options) {
@@ -22,7 +23,8 @@ export async function runCapabilityDiff(options) {
         detectPythonDeps(packageMode),
         detectNpmLockfile(packageMode)
     ]);
-    const findings = [
+    const findings = dedupeFindings([
+        ...detectWorkflowStructure(context.addedLines, context.newFileContents),
         ...detectWorkflowPermissions(context.addedLines, context.newFileContents),
         ...detectDockerfileCapability(context.addedLines),
         ...detectJsCapability(context.addedLines, context.newFileContents),
@@ -32,6 +34,54 @@ export async function runCapabilityDiff(options) {
         ...depFindings,
         ...pythonDepFindings,
         ...lockfileFindings
-    ];
+    ]);
     return createReport(findings, context);
+}
+// Two-stage dedup:
+//   1. Drop exact-duplicate (kind, file, line) entries — the structural and
+//      per-line workflow detectors can land on the same kind/line.
+//   2. When a more-specific structural kind is present at a (file, line),
+//      drop the less-specific kinds it supersedes at the same location.
+//      This hides the per-line generic permission finding when the
+//      structural workflow-level one carries strictly richer context.
+const SUPERSEDES = {
+    'capability_echo.workflow_workflow_level_write_permission': ['capability_echo.workflow_permission_write']
+};
+function dedupeFindings(findings) {
+    const kindsByLocation = new Map();
+    for (const finding of findings) {
+        const key = `${finding.file}:${finding.line ?? ''}`;
+        const set = kindsByLocation.get(key) ?? new Set();
+        set.add(finding.kind);
+        kindsByLocation.set(key, set);
+    }
+    const suppressByLocation = new Map();
+    for (const [key, kinds] of kindsByLocation.entries()) {
+        const set = new Set();
+        for (const kind of kinds) {
+            const targets = SUPERSEDES[kind];
+            if (!targets) {
+                continue;
+            }
+            for (const target of targets) {
+                set.add(target);
+            }
+        }
+        suppressByLocation.set(key, set);
+    }
+    const seen = new Set();
+    const out = [];
+    for (const finding of findings) {
+        const dedupKey = `${finding.kind} ${finding.file} ${finding.line ?? ''}`;
+        if (seen.has(dedupKey)) {
+            continue;
+        }
+        const locationKey = `${finding.file}:${finding.line ?? ''}`;
+        if (suppressByLocation.get(locationKey)?.has(finding.kind)) {
+            continue;
+        }
+        seen.add(dedupKey);
+        out.push(finding);
+    }
+    return out;
 }

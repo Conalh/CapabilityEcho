@@ -43,7 +43,8 @@
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
-    "agent-gov-core": "^0.7.0"
+    "agent-gov-core": "^0.7.0",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

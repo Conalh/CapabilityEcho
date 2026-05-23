@@ -82,7 +82,14 @@ test('CLI diffs capability drift between git refs without agent config changes',
 
     assert.equal(report.rating, 'critical');
     assert.ok(report.findings.some((finding) => finding.kind === 'capability_echo.external_fetch_added'));
-    assert.ok(report.findings.some((finding) => finding.kind === 'capability_echo.workflow_permission_write'));
+    assert.ok(
+      report.findings.some(
+        (finding) =>
+          finding.kind === 'capability_echo.workflow_permission_write' ||
+          finding.kind === 'capability_echo.workflow_workflow_level_write_permission'
+      ),
+      'expected a workflow write-permission finding (per-line or structural)'
+    );
     assert.ok(report.findings.some((finding) => finding.kind === 'capability_echo.lifecycle_script_added'));
   } finally {
     await fx.cleanup();
