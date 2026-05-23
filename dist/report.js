@@ -1,3 +1,4 @@
+import { createFinding as createCanonicalFinding, createReport as createCanonicalReport, } from 'agent-gov-core';
 const EXCLUDED_SURFACES = ['AI-agent config'];
 const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low'];
 const SURFACE_LABELS = {
@@ -57,9 +58,48 @@ export function createReport(findings, context) {
         findings
     };
 }
+/**
+ * Project a CapabilityEcho-internal {@link EchoReport} into the canonical
+ * agent-gov-core {@link CanonicalReport} envelope. Used at the JSON
+ * serialization boundary so cross-tool meta-reviewers (GovVerdict) ingest
+ * one shape across the whole suite. CapabilityEcho-specific top-level
+ * fields move under `Report.data`; per-finding extras (`subject`,
+ * `recommendation`, `surface`) ride under each canonical Finding's
+ * `data.*`. Internal markdown / text / github renderers continue to
+ * consume `EchoReport` directly.
+ */
+export function toCanonicalReport(report) {
+    const findings = report.findings.map((f) => {
+        const name = f.kind.startsWith('capability_echo.')
+            ? f.kind.slice('capability_echo.'.length)
+            : f.kind;
+        return createCanonicalFinding({
+            tool: 'capability_echo',
+            name,
+            severity: f.severity,
+            message: f.message,
+            location: f.line !== undefined ? { file: f.file, line: f.line } : { file: f.file },
+            data: { subject: f.subject, recommendation: f.recommendation, surface: f.surface },
+            salientKey: f.subject,
+        });
+    });
+    return createCanonicalReport({
+        tool: 'capability_echo',
+        findings,
+        data: {
+            changedFileCount: report.changedFileCount,
+            scannedSurfaces: report.scannedSurfaces,
+            excludedSurfaces: report.excludedSurfaces,
+            surfaceSummary: report.surfaceSummary,
+            severitySummary: report.severitySummary,
+            capabilitySummary: report.capabilitySummary,
+            topRecommendations: report.topRecommendations,
+        },
+    });
+}
 export function renderReport(report, format) {
     if (format === 'json') {
-        return `${JSON.stringify(report, null, 2)}\n`;
+        return `${JSON.stringify(toCanonicalReport(report), null, 2)}\n`;
     }
     if (format === 'markdown') {
         return renderMarkdown(report);

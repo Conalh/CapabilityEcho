@@ -157,13 +157,13 @@ test('CLI ignores AI-agent config changes while still scanning executable surfac
 
     const report = await runDiff(fx.repo, base, head);
 
-    assert.equal(report.changedFileCount, 3);
-    assert.deepEqual(new Set(report.scannedSurfaces), new Set(['source', 'package', 'workflow']));
-    assert.ok(report.excludedSurfaces.includes('AI-agent config'));
-    assert.ok(report.findings.some((finding) => finding.surface === 'source'));
-    assert.ok(report.findings.some((finding) => finding.surface === 'package'));
-    assert.ok(report.findings.some((finding) => finding.surface === 'workflow'));
-    assert.ok(report.findings.every((finding) => !finding.file.includes('.mcp') && !finding.file.includes('.claude')));
+    assert.equal(report.data.changedFileCount, 3);
+    assert.deepEqual(new Set(report.data.scannedSurfaces), new Set(['source', 'package', 'workflow']));
+    assert.ok(report.data.excludedSurfaces.includes('AI-agent config'));
+    assert.ok(report.findings.some((finding) => finding.data.surface === 'source'));
+    assert.ok(report.findings.some((finding) => finding.data.surface === 'package'));
+    assert.ok(report.findings.some((finding) => finding.data.surface === 'workflow'));
+    assert.ok(report.findings.every((finding) => !finding.location.file.includes('.mcp') && !finding.location.file.includes('.claude')));
   } finally {
     await fx.cleanup();
   }
@@ -208,11 +208,11 @@ test('CLI detects package capability drift from compared git refs, not the curre
 
     const report = await runDiff(fx.repo, base, head);
 
-    assert.equal(report.changedFileCount, 1);
-    assert.deepEqual(report.scannedSurfaces, ['package']);
+    assert.equal(report.data.changedFileCount, 1);
+    assert.deepEqual(report.data.scannedSurfaces, ['package']);
     assert.ok(report.findings.some((finding) => finding.kind === 'capability_echo.lifecycle_script_added'));
     assert.ok(report.findings.some((finding) => finding.kind === 'capability_echo.high_capability_dep_added'));
-    assert.ok(report.findings.every((finding) => finding.file === 'tools/agent/package.json'));
+    assert.ok(report.findings.every((finding) => finding.location.file ==='tools/agent/package.json'));
   } finally {
     await fx.cleanup();
   }
@@ -267,8 +267,8 @@ test('CLI flags PR-head checkout added to an existing pull_request_target workfl
     const report = await runDiff(fx.repo, base, head);
     const finding = report.findings.find((item) => item.kind === 'capability_echo.workflow_pr_head_checkout_on_target');
     assert.ok(finding);
-    assert.equal(finding.file, '.github/workflows/ci.yml');
-    assert.equal(finding.line, 12);
+    assert.equal(finding.location.file, '.github/workflows/ci.yml');
+    assert.equal(finding.location.line, 12);
     assert.equal(finding.severity, 'high');
   } finally {
     await fx.cleanup();
@@ -313,8 +313,8 @@ test('CLI flags external requests using existing workflow secret env vars', asyn
     const report = await runDiff(fx.repo, base, head);
     const finding = report.findings.find((item) => item.kind === 'capability_echo.workflow_secret_exfil_pattern');
     assert.ok(finding);
-    assert.equal(finding.file, '.github/workflows/ci.yml');
-    assert.equal(finding.line, 10);
+    assert.equal(finding.location.file, '.github/workflows/ci.yml');
+    assert.equal(finding.location.line, 10);
     assert.equal(finding.severity, 'high');
   } finally {
     await fx.cleanup();
@@ -368,8 +368,8 @@ test('CLI flags external fetches using existing source env secret variables', as
     const report = await runDiff(fx.repo, base, head);
     const finding = report.findings.find((item) => item.kind === 'capability_echo.source_secret_exfil_pattern');
     assert.ok(finding);
-    assert.equal(finding.file, 'src/client.ts');
-    assert.equal(finding.line, 4);
+    assert.equal(finding.location.file, 'src/client.ts');
+    assert.equal(finding.location.line, 4);
     assert.equal(finding.severity, 'high');
   } finally {
     await fx.cleanup();
@@ -431,8 +431,8 @@ test('CLI flags Python external requests using existing source env secret variab
     const report = await runDiff(fx.repo, base, head);
     const finding = report.findings.find((item) => item.kind === 'capability_echo.source_secret_exfil_pattern');
     assert.ok(finding);
-    assert.equal(finding.file, 'src/agent.py');
-    assert.equal(finding.line, 6);
+    assert.equal(finding.location.file, 'src/agent.py');
+    assert.equal(finding.location.line, 6);
     assert.equal(finding.severity, 'high');
   } finally {
     await fx.cleanup();
@@ -464,15 +464,15 @@ test('CLI preserves monorepo source paths in findings and annotations', async ()
 
     const report = await runDiff(fx.repo, base, head);
     const webFinding = report.findings.find(
-      (finding) => finding.kind === 'capability_echo.external_fetch_added' && finding.file.includes('apps/web')
+      (finding) => finding.kind === 'capability_echo.external_fetch_added' && finding.location.file.includes('apps/web')
     );
     const coreFinding = report.findings.find(
-      (finding) => finding.kind === 'capability_echo.external_fetch_added' && finding.file.includes('packages/core')
+      (finding) => finding.kind === 'capability_echo.external_fetch_added' && finding.location.file.includes('packages/core')
     );
     assert.ok(webFinding, 'expected a finding under apps/web');
-    assert.equal(webFinding.file, 'apps/web/src/api.ts');
+    assert.equal(webFinding.location.file, 'apps/web/src/api.ts');
     assert.ok(coreFinding, 'expected a finding under packages/core');
-    assert.equal(coreFinding.file, 'packages/core/src/util.ts');
+    assert.equal(coreFinding.location.file, 'packages/core/src/util.ts');
   } finally {
     await fx.cleanup();
   }

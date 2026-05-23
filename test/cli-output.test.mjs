@@ -21,9 +21,9 @@ test('CLI emits JSON capability drift report', async () => {
   const report = JSON.parse(stdout);
 
   assert.equal(report.rating, 'critical');
-  assert.ok(report.findingCount >= 5);
-  assert.ok(report.changedFileCount >= 3);
-  assert.ok(report.capabilitySummary.length >= 4);
+  assert.ok(report.findings.length >= 5);
+  assert.ok(report.data.changedFileCount >= 3);
+  assert.ok(report.data.capabilitySummary.length >= 4);
   assert.ok(report.findings.some((finding) => finding.kind === 'capability_echo.external_fetch_added'));
   assert.ok(report.findings.some((finding) => finding.kind === 'capability_echo.lifecycle_script_added'));
   assert.ok(report.findings.some((finding) => finding.kind === 'capability_echo.script_pipe_to_shell'));
@@ -35,9 +35,9 @@ test('CLI emits JSON capability drift report', async () => {
     ),
     'expected a workflow write-permission finding (per-line or structural)'
   );
-  assert.deepEqual(report.surfaceSummary, { source: 1, package: 3, workflow: 2, container: 0 });
-  assert.deepEqual(report.severitySummary, { critical: 1, high: 2, medium: 3, low: 0 });
-  assert.deepEqual(report.topRecommendations, [
+  assert.deepEqual(report.data.surfaceSummary, { source: 1, package: 3, workflow: 2, container: 0 });
+  assert.deepEqual(report.data.severitySummary, { critical: 1, high: 2, medium: 3, low: 0 });
+  assert.deepEqual(report.data.topRecommendations, [
     'Replace remote pipe-to-shell patterns with pinned, reviewable install steps.',
     'Use the narrowest permission scope required for this job.',
     'Review lifecycle scripts carefully; they run automatically on install.'
@@ -97,7 +97,7 @@ test('clean fixture returns rating none', async () => {
   const report = JSON.parse(stdout);
 
   assert.equal(report.rating, 'none');
-  assert.equal(report.findingCount, 0);
+  assert.equal(report.findings.length, 0);
 });
 
 test('CLI exits 0 by default when findings exceed nothing', async () => {

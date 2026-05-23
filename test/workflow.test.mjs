@@ -147,8 +147,8 @@ test('JavaScript action entrypoint emits outputs, summary, and GitHub annotation
     assert.equal('findings' in adoptionEvidence, false);
     const jsonReport = JSON.parse(parsedOutputs.get('report-json') ?? '{}');
     assert.equal(jsonReport.rating, 'critical');
-    assert.equal(jsonReport.findingCount, 4);
-    assert.deepEqual(jsonReport.surfaceSummary, { source: 1, package: 3, workflow: 0, container: 0 });
+    assert.equal(jsonReport.findings.length, 4);
+    assert.deepEqual(jsonReport.data.surfaceSummary, { source: 1, package: 3, workflow: 0, container: 0 });
     assert.ok(jsonReport.findings.some((finding) => finding.kind === 'capability_echo.external_fetch_added'));
     assert.match(summary, /# CapabilityEcho capability drift: CRITICAL/);
     assert.match(summary, /## Top recommendations/);
@@ -483,7 +483,7 @@ test('report-file writes the full markdown and JSON sidecar', async () => {
 
     assert.match(fullMd, /# CapabilityEcho capability drift: CRITICAL/);
     const parsed = JSON.parse(fullJson);
-    assert.equal(parsed.findingCount, 4, 'sidecar must contain the full finding set, not the truncated view');
+    assert.equal(parsed.findings.length, 4, 'sidecar must contain the full finding set, not the truncated view');
   } finally {
     await fx.cleanup();
   }

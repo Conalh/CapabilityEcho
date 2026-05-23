@@ -26,7 +26,7 @@ test('bypass: JS destructured env secret flags exfil on later external request',
     (finding) => finding.kind === 'capability_echo.source_secret_exfil_pattern'
   );
   assert.ok(exfil, 'expected source_secret_exfil_pattern finding');
-  assert.match(exfil.file, /sync\.ts$/);
+  assert.match(exfil.location.file, /sync\.ts$/);
 });
 
 test('bypass: Python aliased getenv flags exfil on later external request', async () => {
@@ -35,7 +35,7 @@ test('bypass: Python aliased getenv flags exfil on later external request', asyn
     (finding) => finding.kind === 'capability_echo.source_secret_exfil_pattern'
   );
   assert.ok(exfil, 'expected source_secret_exfil_pattern finding');
-  assert.match(exfil.file, /agent\.py$/);
+  assert.match(exfil.location.file, /agent\.py$/);
 });
 
 test('bypass: workflow PR-head via clone_url and refs/pull/N/merge under pull_request_target', async () => {

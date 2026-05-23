@@ -92,7 +92,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: Conalh/CapabilityEcho@v0.1.0
+      - uses: Conalh/CapabilityEcho@v0.2.0
         with:
           fail-on: none
 ```
