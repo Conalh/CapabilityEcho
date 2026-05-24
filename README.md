@@ -1,92 +1,23 @@
 # CapabilityEcho
 
-[![CI](https://github.com/Conalh/CapabilityEcho/actions/workflows/ci.yml/badge.svg)](https://github.com/Conalh/CapabilityEcho/actions/workflows/ci.yml)
-[![CapabilityEcho](https://github.com/Conalh/CapabilityEcho/actions/workflows/capabilityecho.yml/badge.svg)](https://github.com/Conalh/CapabilityEcho/actions/workflows/capabilityecho.yml)
-[![Release](https://img.shields.io/github/v/release/Conalh/CapabilityEcho)](https://github.com/Conalh/CapabilityEcho/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white)](package.json)
+[![Local-only](https://img.shields.io/badge/runs-local%20only-2ea44f)](#how-it-works)
+[![Release](https://img.shields.io/github/v/release/Conalh/CapabilityEcho)](https://github.com/Conalh/CapabilityEcho/releases)
 
-Code review for AI agent capability drift in pull requests.
+**Flags new network, subprocess, eval, and workflow-permission signals that an AI agent's PR introduces into the code itself — not its config.**
 
-CapabilityEcho is a free OSS CLI and GitHub Action that reviews pull requests for risky **code and workflow changes** that expand what agents can reach — even when agent config files did not change.
+## The problem
 
-- JavaScript, TypeScript, **and Python** network, subprocess, and dynamic-eval signals
-- `package.json` lifecycle and pipe-to-shell install scripts
-- GitHub Actions write permissions and external network steps
-- Terminal, Markdown, JSON, and line-level GitHub annotation output
-- GitHub Action step summaries and PR-visible warnings
+An agent's `.mcp.json` and `.claude/settings.json` can look unchanged while the PR adds a `fetch('https://…')` to a new file, a `postinstall` script that pipes a remote installer into bash, or a workflow that grants `contents: write` and curls a secret out. The agent didn't ask for new permissions — it just *wrote code that uses them*. CapabilityEcho diffs the PR and flags those signals on the exact added lines, so capability drift through code is as visible as capability drift through config.
 
-It is intentionally not a hosted scanner. The Action reads the checked-out repository, uploads nothing by default, and starts advisory with `fail-on: none`.
+## Quickstart
 
-CapabilityEcho does **not** scan agent config files such as `.mcp.json` or `.claude/settings.json`. Use [ScopeTrail](https://github.com/Conalh/ScopeTrail) for that.
-
-> ScopeTrail catches permission drift in agent config. CapabilityEcho catches capability drift in the code those agents can edit and run.
-
-## Part of an AI-agent governance suite
-
-Five tools mapping orthogonal failure modes of AI-agent deployment:
-
-- **[ScopeTrail](https://github.com/Conalh/ScopeTrail)** — config drift over time (PR-level).
-- **[PolicyMesh](https://github.com/Conalh/PolicyMesh)** — policy contradictions across agent surfaces.
-- **CapabilityEcho** *(this repo)* — capability drift via code, not config.
-- **[TaskBound](https://github.com/Conalh/TaskBound)** — scope creep after the agent runs.
-- **[SessionTrail](https://github.com/Conalh/SessionTrail)** — runtime behavior review across agent session transcripts.
-
-ScopeTrail, PolicyMesh, and CapabilityEcho are preventive (static analysis of config and code). SessionTrail is runtime (in-session transcript review). TaskBound is detective (stated task vs. actual diff).
-
-Plus, sitting alongside the five detectors:
-
-- **[GovVerdict](https://github.com/Conalh/GovVerdict)** — meta-reviewer that merges JSON reports from the five tools above into one PR verdict.
-- **[agent-gov-core](https://github.com/Conalh/agent-gov-core)** — shared `Finding` schema, `mergeFindings`, and parsers all six tools consume.
-- **[agent-gov-demo](https://github.com/Conalh/agent-gov-demo)** — demo sandbox; [PR #1](https://github.com/Conalh/agent-gov-demo/pull/1) trips all five detectors at once.
-
-## Demo
-
-Live demo PR: [Demo: code-only capability drift](https://github.com/Conalh/CapabilityEcho/pull/1)
-
-That PR intentionally adds only application and workflow changes:
-
-- A new `src/api/sync.ts` file with an external `fetch()` call.
-- A `postinstall` script that pipes a remote installer into `bash`.
-- GitHub Actions `contents: write` permission and a `curl` bootstrap step.
-
-No agent config files change, so ScopeTrail would report `none`. CapabilityEcho reports `HIGH` capability drift and emits GitHub warning annotations on the risky lines.
-
-Local fixture with the same scenario:
-
-```powershell
-node dist/index.js diff --old test/fixtures/capability-drift/old --new test/fixtures/capability-drift/new --format markdown
-```
-
-## Local Use
-
-```powershell
-npm install
-npm run build
-node dist/index.js diff --old test/fixtures/capability-drift/old --new test/fixtures/capability-drift/new --format markdown
-```
-
-Compare two git refs:
-
-```powershell
-node dist/index.js diff --repo . --base main --head HEAD --format markdown
-```
-
-JSON output:
-
-```powershell
-node dist/index.js diff --old test/fixtures/capability-drift/old --new test/fixtures/capability-drift/new --format json
-```
-
-## GitHub Action
-
-Add this workflow to review code and workflow capability drift on pull requests:
+### As a GitHub Action (most common)
 
 ```yaml
 name: CapabilityEcho
-
-on:
-  pull_request:
-
+on: pull_request
 permissions:
   contents: read
 
@@ -96,99 +27,136 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0
-
-      - uses: Conalh/CapabilityEcho@v0.2.0
+          fetch-depth: 0          # required: PR base + head are compared
+      - uses: Conalh/CapabilityEcho@v0.2.1
         with:
-          fail-on: none
+          fail-on: none           # start advisory, raise to high/critical later
 ```
 
-The action uploads nothing by default. It reads local git state from the checked-out repository, writes a Markdown report to the GitHub Actions step summary, and emits PR-visible warning annotations for each finding. Findings point at exact added lines when CapabilityEcho can resolve them.
+This writes a Markdown report to the Actions step summary and emits PR-visible `::warning` annotations on the risky lines.
 
-Start with `fail-on: none` so CapabilityEcho is advisory while you tune policy. Raise it to `high` or `critical` once the findings are trusted.
-
-`fetch-depth: 0` is required because CapabilityEcho compares the pull request base and head refs.
-
-Action outputs:
-
-- `rating`: `none`, `low`, `medium`, `high`, or `critical`
-- `finding-count`: total findings in the diff
-- `changed-file-count`: number of changed scannable files in the diff
-
-Optional inputs for very large diffs:
-
-- `max-findings` (default `0` = unlimited): truncate the on-action markdown/json outputs and step summary to the top-N findings ranked by severity. `rating`, `finding-count`, and the `fail-on` decision are still computed against the full set.
-- `max-output-bytes` (default `0` = unlimited): suppress the `report-markdown` and `report-json` action outputs (only — the step summary is left intact) when they exceed this byte size, replacing them with a short notice. Useful to stay inside GitHub Actions output limits.
-- `report-file` (default empty): repo-relative or absolute path to write the **full** markdown report. A sibling `<path>.json` is also written. Pair with `actions/upload-artifact` to keep a complete record alongside a truncated PR view.
-
-## Current Findings
-
-CapabilityEcho v0 detects:
-
-- External network fetch calls in added JavaScript or TypeScript lines.
-- Subprocess or shell spawn calls in added JavaScript or TypeScript lines.
-- Dynamic code execution such as `eval()` or `new Function()` in added lines.
-- **Python equivalents:** `requests`/`httpx`/`urllib` network calls (URL-gated), `subprocess`/`os.system`/`os.popen`/`pty.spawn`, `eval`/`exec`/`compile`/`__import__`/`importlib.import_module`, and unsafe deserialization (`pickle.load`, `marshal.load`, `yaml.load` without `SafeLoader`).
-- **Newly-added dependencies with high capability surface:** headless browsers (`puppeteer`, `playwright`, `cypress`), subprocess/PTY wrappers (`execa`, `cross-spawn`, `node-pty`, `shelljs`, `zx`), arbitrary HTTP clients (`node-fetch`, `undici`, `got`, `axios`), VM/eval libraries (`vm2`, `isolated-vm`), and SSH/proxy primitives. Telemetry SDKs are flagged at medium.
-- **Python dependency manifests:** added high-capability deps in `requirements.txt`, `pyproject.toml` (PEP 621 and Poetry), and `Pipfile` — HTTP clients (`requests`, `httpx`, `aiohttp`), browser automation (`playwright`, `selenium`), subprocess/SSH wrappers (`sh`, `pexpect`, `paramiko`, `fabric`), and dynamic-eval libraries.
-- **npm lockfile (`package-lock.json`, `npm-shrinkwrap.json`):** transitive high-capability dep additions and newly-added packages declaring install/postinstall scripts.
-- GitHub Actions write permissions in added workflow lines.
-- External network requests in added workflow steps.
-- Workflow steps that combine secrets or env values with external requests.
-- Added or changed npm lifecycle scripts such as `postinstall`.
-- Pipe-to-shell install scripts in `package.json`.
-- Network or publish commands in npm scripts.
-
-## Detection limits
-
-CapabilityEcho v0 inspects added diff lines, with a full-file pass for secret-variable
-collection in changed JS and Python files. A few patterns are still structurally
-bypassable today:
-
-- **Same-line URL requirement.** Inline network detection for *high-level*
-  clients (fetch, axios, requests, httpx, urllib) gates on `https?://` (or a
-  variable substitution in workflow lines). The detector also looks at the
-  next few added lines for a URL or secret reference, so split-line
-  `fetch(\n  'https://…',\n  …\n)` constructs are flagged. Low-level
-  primitives (`http.client`, `socket.socket`, `https.get`, `paramiko`, etc.)
-  fire without requiring a URL on the same line.
-- **No cross-file taint.** A new call site that references a URL or secret defined
-  in an existing (unchanged) file is not tainted today.
-- **Partial npm lockfile coverage.** `package-lock.json` (and `npm-shrinkwrap.json`)
-  are scanned for transitive high-capability dep additions and newly-added
-  packages declaring an install script. `pnpm-lock.yaml` and `yarn.lock` are not
-  scanned today.
-- **Workflow scanning is hybrid.** A structural YAML pass reasons about
-  job-level vs workflow-level permission scope, step `env`/`with`/`uses`
-  precedence, and `secrets.*`-derived env precedence inside `run:` blocks.
-  A per-line pass backs that up for the cases where the YAML doesn't parse
-  cleanly or the finding is line-scoped (e.g. shell text inside `run:`
-  blocks where the regex still operates on the parsed string value).
-
-Bypass closures land regularly — see [`test/fixtures/bypasses/`](test/fixtures/bypasses)
-for the corpus of patterns the detector has been hardened against.
-
-## Complements ScopeTrail and PolicyMesh
-
-Use the suite together:
-
-- **[ScopeTrail](https://github.com/Conalh/ScopeTrail)** — did agent permissions **change** in this PR?
-- **[PolicyMesh](https://github.com/Conalh/PolicyMesh)** — do agent surfaces **agree** in this repo right now?
-- **CapabilityEcho** — did the **code or workflow diff** introduce new capability signals?
-
-## Feedback Wanted
-
-CapabilityEcho is intentionally small right now. If a warning is noisy, open a
-[false-positive report](https://github.com/Conalh/CapabilityEcho/issues/new?template=false-positive.yml).
-If your team uses another capability signal, open a
-[missing-signal request](https://github.com/Conalh/CapabilityEcho/issues/new?template=missing-signal.yml).
-
-## Development
+### Local CLI
 
 ```powershell
+git clone https://github.com/Conalh/CapabilityEcho
+cd CapabilityEcho
 npm install
 npm run build
-npm test
+
+# Compare two directories (fastest way to try it on the bundled fixture)
+node dist/index.js diff `
+  --old test/fixtures/capability-drift/old `
+  --new test/fixtures/capability-drift/new `
+  --format markdown
+
+# Compare two git refs in a real repo
+node dist/index.js diff --repo . --base main --head HEAD --format text
 ```
 
-Shared parsing, locators, and the Finding schema live in [agent-gov-core](https://github.com/Conalh/agent-gov-core) — see its [CONTRIBUTING.md](https://github.com/Conalh/agent-gov-core/blob/main/CONTRIBUTING.md) before touching that library.
+<!-- TODO: add screenshot or asciinema GIF of real terminal output here -->
+
+## Example output
+
+Real output from the bundled fixture, `--format text`:
+
+```
+CapabilityEcho capability drift: CRITICAL
+Scanned executable surfaces: source code, package manifests, GitHub workflows.
+Excluded surfaces: AI-agent config.
+Signals: GitHub Actions workflow-level write permissions, workflow external network requests,
+  external network fetch calls, npm lifecycle scripts, pipe-to-shell install scripts,
+  network or publish npm scripts
+Top recommendations: Replace remote pipe-to-shell patterns with pinned, reviewable install steps.
+  | Use the narrowest permission scope required for this job.
+  | Review lifecycle scripts carefully; they run automatically on install.
+[HIGH]     GitHub Actions workflow-level write permission (contents) — contents:write applies to every job
+[MEDIUM]   Workflow external request — step performs an external network request
+[MEDIUM]   External network fetch — added code performs an external HTTP request
+[HIGH]     package.json postinstall script — added or changed npm lifecycle script
+[CRITICAL] package.json postinstall pipe-to-shell — script pipes remote content into a shell
+[MEDIUM]   package.json postinstall network command
+```
+
+`--format json` emits the canonical [agent-gov-core](https://github.com/Conalh/agent-gov-core) `Report` envelope — the same shape every tool in the suite emits, so [GovVerdict](https://github.com/Conalh/GovVerdict) can merge them:
+
+```json
+{
+  "schemaVersion": "1.0",
+  "tool": "capability_echo",
+  "rating": "critical",
+  "findings": [
+    {
+      "tool": "capability_echo",
+      "kind": "capability_echo.script_pipe_to_shell",
+      "severity": "critical",
+      "message": "Script downloads and pipes content directly into a shell.",
+      "location": { "file": "package.json", "line": 12 },
+      "salientKey": "package.json postinstall pipe-to-shell",
+      "data": {
+        "subject": "package.json postinstall pipe-to-shell",
+        "recommendation": "Replace remote pipe-to-shell patterns with pinned, reviewable install steps.",
+        "surface": "package"
+      },
+      "fingerprint": "…"
+    }
+  ],
+  "data": { "changedFileCount": 3, "scannedSurfaces": ["source", "package", "workflow"], "…": "…" }
+}
+```
+
+## How it works
+
+- Runs against the **checked-out repo** — no upload, no hosted scanner, no telemetry.
+- Resolves the diff (`--old`/`--new` directories, or `--base`/`--head` git refs) and inspects **added lines** across four surfaces: source code (JS/TS/Python), package manifests + lockfiles, GitHub workflows, and Dockerfiles.
+- For each surface, a small set of detectors fire on patterns that expand capability: external network calls, subprocess/shell spawns, dynamic `eval`/`exec`, unsafe deserialization, newly-added high-capability deps, npm lifecycle and pipe-to-shell scripts, workflow write permissions and external requests, secret-tainted exfil patterns.
+- Workflows get a structural YAML pass (job-level vs workflow-level scopes, `secrets.*` env precedence, `pull_request_target` + PR-head checkout) backed by a line pass for shell text inside `run:` blocks.
+- Findings carry severity, file + line, and a recommendation. The action exits non-zero only when `fail-on` is met.
+
+What it does **not** do: scan agent config files (`.mcp.json`, `.claude/settings.json`, etc.) — that's [ScopeTrail](https://github.com/Conalh/ScopeTrail)'s job. The two are designed to be run together.
+
+## Options
+
+### CLI flags (`capabilityecho diff …`)
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--old <dir>` / `--new <dir>` | — | Directory-mode diff. |
+| `--repo <path>` / `--base <ref>` / `--head <ref>` | repo = cwd | Git-mode diff between two refs in a real repo. |
+| `--format` | `text` | `text`, `markdown`, `json` (canonical envelope), `github` (annotations). |
+| `--fail-on` | `none` | Exit non-zero if the highest finding meets this severity: `none`, `low`, `medium`, `high`, `critical`. |
+
+### GitHub Action inputs
+
+| Input | Default | Purpose |
+| --- | --- | --- |
+| `repo` | `$GITHUB_WORKSPACE` | Checkout path to inspect. |
+| `base` / `head` | PR base / head | Override the refs being compared. |
+| `fail-on` | `none` | Severity that fails the job. |
+| `max-findings` | `0` (unlimited) | Truncate Action outputs + step summary to top-N by severity. Rating and `fail-on` still use the full set. |
+| `max-output-bytes` | `0` (unlimited) | Suppress `report-markdown` / `report-json` Action outputs over this size (step summary kept). |
+| `report-file` | _empty_ | Path to write the full Markdown report (plus a sibling `.json`). Pair with `actions/upload-artifact`. |
+
+### GitHub Action outputs
+
+`rating`, `has-findings`, `finding-count`, `changed-file-count`, `surface-summary`, `severity-summary`, `capability-summary`, `top-recommendations`, `adoption-evidence`, `report-markdown`, `report-json`.
+
+## Part of the agent-gov suite
+
+Local-only OSS tools that review AI-agent PRs and coding sessions for config drift, policy mismatches, and scope creep. Each tool covers an orthogonal failure mode; they share a canonical `Finding` schema and can be merged into a single verdict.
+
+| Repo | What it catches |
+| --- | --- |
+| **[ScopeTrail](https://github.com/Conalh/ScopeTrail)** | Diffs agent config files between PR base and head — permission drift. |
+| **[PolicyMesh](https://github.com/Conalh/PolicyMesh)** | Audits MCP / Claude / Codex configs for contradictions across surfaces. |
+| **CapabilityEcho** *(this repo)* | Network, subprocess, eval, lifecycle, and workflow-permission signals in code diffs. |
+| **[TaskBound](https://github.com/Conalh/TaskBound)** | Compares the stated task to the actual diff — scope creep. |
+| **[SessionTrail](https://github.com/Conalh/SessionTrail)** | Parses Cursor / Claude / Codex JSONL session transcripts for runtime behavior. |
+| **[GovVerdict](https://github.com/Conalh/GovVerdict)** | Merges JSON reports from the tools above into a single verdict. |
+| **[agent-gov-core](https://github.com/Conalh/agent-gov-core)** | Shared parsers, the canonical `Finding` schema, `mergeFindings`. |
+| **[agent-gov-demo](https://github.com/Conalh/agent-gov-demo)** | Sandbox repo with a rogue PR that exercises all five tools end-to-end. |
+
+**Demo PR exercising the full stack:** [agent-gov-demo#1](https://github.com/Conalh/agent-gov-demo/pull/1)
+
+---
+
+MIT. Bug reports and false-positive reports welcome via [Issues](https://github.com/Conalh/CapabilityEcho/issues).
