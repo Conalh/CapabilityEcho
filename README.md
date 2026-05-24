@@ -33,6 +33,12 @@ Five tools mapping orthogonal failure modes of AI-agent deployment:
 
 ScopeTrail, PolicyMesh, and CapabilityEcho are preventive (static analysis of config and code). SessionTrail is runtime (in-session transcript review). TaskBound is detective (stated task vs. actual diff).
 
+Plus, sitting alongside the five detectors:
+
+- **[GovVerdict](https://github.com/Conalh/GovVerdict)** — meta-reviewer that merges JSON reports from the five tools above into one PR verdict.
+- **[agent-gov-core](https://github.com/Conalh/agent-gov-core)** — shared `Finding` schema, `mergeFindings`, and parsers all six tools consume.
+- **[agent-gov-demo](https://github.com/Conalh/agent-gov-demo)** — demo sandbox; [PR #1](https://github.com/Conalh/agent-gov-demo/pull/1) trips all five detectors at once.
+
 ## Demo
 
 Live demo PR: [Demo: code-only capability drift](https://github.com/Conalh/CapabilityEcho/pull/1)
