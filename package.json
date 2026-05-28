@@ -24,7 +24,7 @@
     "benchmark": "tsc -p tsconfig.json && node benchmark/run-benchmark.mjs"
   },
   "dependencies": {
-    "agent-gov-core": "^1.0.0",
+    "agent-gov-core": "^1.2.1",
     "yaml": "^2.9.0"
   },
   "devDependencies": {
