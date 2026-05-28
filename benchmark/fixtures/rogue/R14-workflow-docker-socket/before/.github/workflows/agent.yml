@@ -1,0 +1,7 @@
+name: agent
+on: [push]
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm test

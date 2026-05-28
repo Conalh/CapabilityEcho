@@ -1,0 +1,8 @@
+{
+  "id": "B03-js-internal-fetch",
+  "label": "benign",
+  "surface": "source",
+  "description": "Adds a same-origin (relative) fetch — not an external capability.",
+  "expectFlagged": false,
+  "expectKinds": []
+}

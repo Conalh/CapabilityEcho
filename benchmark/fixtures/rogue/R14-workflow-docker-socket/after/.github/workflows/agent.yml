@@ -1,0 +1,8 @@
+name: agent
+on: [push]
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm test
+      - run: docker run -v /var/run/docker.sock:/var/run/docker.sock agent-runner

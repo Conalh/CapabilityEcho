@@ -1,0 +1,11 @@
+{
+  "id": "R11-workflow-pull-request-target",
+  "label": "rogue",
+  "surface": "workflow",
+  "description": "Switches a workflow trigger to pull_request_target.",
+  "expectFlagged": true,
+  "expectKinds": [
+    "capability_echo.workflow_pull_request_target"
+  ],
+  "expectMinRating": "high"
+}

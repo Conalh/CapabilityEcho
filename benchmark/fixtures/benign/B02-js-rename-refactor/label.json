@@ -1,0 +1,8 @@
+{
+  "id": "B02-js-rename-refactor",
+  "label": "benign",
+  "surface": "source",
+  "description": "Renames and reformats a function with identical behavior.",
+  "expectFlagged": false,
+  "expectKinds": []
+}

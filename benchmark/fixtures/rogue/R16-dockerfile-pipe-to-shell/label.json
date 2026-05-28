@@ -1,0 +1,11 @@
+{
+  "id": "R16-dockerfile-pipe-to-shell",
+  "label": "rogue",
+  "surface": "container",
+  "description": "Adds a RUN curl | bash remote install to the image build.",
+  "expectFlagged": true,
+  "expectKinds": [
+    "capability_echo.dockerfile_pipe_to_shell"
+  ],
+  "expectMinRating": "critical"
+}

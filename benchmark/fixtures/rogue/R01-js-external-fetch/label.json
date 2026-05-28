@@ -1,0 +1,11 @@
+{
+  "id": "R01-js-external-fetch",
+  "label": "rogue",
+  "surface": "source",
+  "description": "Adds an outbound fetch() to an external host in a sync module.",
+  "expectFlagged": true,
+  "expectKinds": [
+    "capability_echo.external_fetch_added"
+  ],
+  "expectMinRating": "medium"
+}

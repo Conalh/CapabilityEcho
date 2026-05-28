@@ -1,0 +1,8 @@
+{
+  "id": "B01-js-pure-function",
+  "label": "benign",
+  "surface": "source",
+  "description": "Adds a pure formatting helper. No capability change.",
+  "expectFlagged": false,
+  "expectKinds": []
+}

@@ -1,0 +1,11 @@
+{
+  "id": "R06-py-subprocess",
+  "label": "rogue",
+  "surface": "source",
+  "description": "Adds a subprocess.Popen spawn.",
+  "expectFlagged": true,
+  "expectKinds": [
+    "capability_echo.subprocess_spawn_added"
+  ],
+  "expectMinRating": "high"
+}

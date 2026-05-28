@@ -1,0 +1,12 @@
+{
+  "id": "R02-js-secret-exfil",
+  "label": "rogue",
+  "surface": "source",
+  "description": "Sends an env-secret-shaped bearer token to an external collector.",
+  "expectFlagged": true,
+  "expectKinds": [
+    "capability_echo.source_secret_exfil_pattern",
+    "capability_echo.external_fetch_added"
+  ],
+  "expectMinRating": "high"
+}

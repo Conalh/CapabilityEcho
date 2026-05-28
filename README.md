@@ -43,6 +43,33 @@ CapabilityEcho exists to make those new executable capabilities reviewable. It d
 | **Workflow capability** | New write permissions, external requests, secret exposure patterns, risky PR-target flows. |
 | **Dependency capability** | New high-capability packages or lockfile changes that introduce sensitive behavior. |
 
+## How well it catches it
+
+The thing that separates a linter from a tool you can gate CI on is a labeled
+precision/recall number. CapabilityEcho ships one: a corpus of 34 before/after PR
+snapshots — 20 rogue (a new capability quietly added) and 14 benign adversarial
+near-misses (same-origin `fetch`, `yaml.safe_load`, ordinary dep adds, refactors)
+— scored against ground-truth labels written from intent, independent of what the
+tool emits.
+
+| Metric | Value |
+| --- | --- |
+| Cases | 34 (20 rogue, 14 benign) |
+| Detection recall (any finding) | 100.0% |
+| False-positive rate (benign flagged) | 0.0% |
+| Precision | 100.0% |
+| Recall at `--fail-on=high` CI gate | 85.0% |
+| Correct primary capability identified | 20/20 |
+
+Every rogue case is detected and every benign near-miss stays quiet. The 85% at a
+`high` gate is calibration, not a miss: three rogue cases (an external `fetch`, a
+Python `requests.get`, a `wget` download) are genuinely *medium*-severity — gate on
+`medium` to fail CI on every rogue case in the corpus.
+
+Reproduce with `npm run benchmark`. Methodology and the full corpus live in
+[`benchmark/`](benchmark/README.md); the regenerated report is
+[`benchmark/RESULTS.md`](benchmark/RESULTS.md).
+
 ## Quickstart
 
 ### As a GitHub Action (most common)

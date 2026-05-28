@@ -1,0 +1,12 @@
+{
+  "id": "R19-pkg-postinstall-pipe-to-shell",
+  "label": "rogue",
+  "surface": "package",
+  "description": "Adds a postinstall that pipes a remote script into a shell.",
+  "expectFlagged": true,
+  "expectKinds": [
+    "capability_echo.lifecycle_script_added",
+    "capability_echo.script_pipe_to_shell"
+  ],
+  "expectMinRating": "critical"
+}

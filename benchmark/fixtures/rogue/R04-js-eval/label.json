@@ -1,0 +1,11 @@
+{
+  "id": "R04-js-eval",
+  "label": "rogue",
+  "surface": "source",
+  "description": "Adds a dynamic eval() of caller-supplied code.",
+  "expectFlagged": true,
+  "expectKinds": [
+    "capability_echo.dynamic_eval_added"
+  ],
+  "expectMinRating": "critical"
+}

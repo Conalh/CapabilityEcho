@@ -1,0 +1,13 @@
+{
+  "id": "R20-multi-surface",
+  "label": "rogue",
+  "surface": "source",
+  "description": "A single PR that exfiltrates a secret in source and widens the CI token at once.",
+  "expectFlagged": true,
+  "expectKinds": [
+    "capability_echo.source_secret_exfil_pattern",
+    "capability_echo.external_fetch_added",
+    "capability_echo.workflow_workflow_level_write_permission"
+  ],
+  "expectMinRating": "high"
+}

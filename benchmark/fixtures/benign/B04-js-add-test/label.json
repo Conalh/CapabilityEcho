@@ -1,0 +1,8 @@
+{
+  "id": "B04-js-add-test",
+  "label": "benign",
+  "surface": "source",
+  "description": "Adds a unit test file with assertions only.",
+  "expectFlagged": false,
+  "expectKinds": []
+}

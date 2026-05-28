@@ -1,0 +1,8 @@
+{
+  "id": "B09-pkg-normal-scripts",
+  "label": "benign",
+  "surface": "package",
+  "description": "Adds ordinary non-lifecycle scripts (test, lint).",
+  "expectFlagged": false,
+  "expectKinds": []
+}

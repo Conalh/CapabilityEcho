@@ -1,0 +1,8 @@
+{
+  "id": "B13-pkg-version-bump",
+  "label": "benign",
+  "surface": "package",
+  "description": "Bumps an existing dependency version — not a new capability.",
+  "expectFlagged": false,
+  "expectKinds": []
+}

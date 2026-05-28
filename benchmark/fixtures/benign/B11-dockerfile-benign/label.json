@@ -1,0 +1,8 @@
+{
+  "id": "B11-dockerfile-benign",
+  "label": "benign",
+  "surface": "container",
+  "description": "Standard Dockerfile build with COPY + npm ci; no remote fetch.",
+  "expectFlagged": false,
+  "expectKinds": []
+}

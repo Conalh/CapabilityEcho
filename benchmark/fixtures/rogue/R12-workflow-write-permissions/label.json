@@ -1,0 +1,11 @@
+{
+  "id": "R12-workflow-write-permissions",
+  "label": "rogue",
+  "surface": "workflow",
+  "description": "Widens the workflow token to contents: write.",
+  "expectFlagged": true,
+  "expectKinds": [
+    "capability_echo.workflow_workflow_level_write_permission"
+  ],
+  "expectMinRating": "high"
+}

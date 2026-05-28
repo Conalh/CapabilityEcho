@@ -1,0 +1,11 @@
+{
+  "id": "R08-py-eval",
+  "label": "rogue",
+  "surface": "source",
+  "description": "Adds eval() of a runtime expression.",
+  "expectFlagged": true,
+  "expectKinds": [
+    "capability_echo.dynamic_eval_added"
+  ],
+  "expectMinRating": "critical"
+}

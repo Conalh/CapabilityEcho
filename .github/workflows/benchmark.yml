@@ -1,0 +1,33 @@
+name: Benchmark
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Run the labeled precision/recall benchmark
+        run: npm run benchmark
+
+      - name: Verify RESULTS.md is up to date (run `npm run benchmark && git add benchmark/RESULTS.md` if this fails)
+        run: git diff --exit-code -- benchmark/RESULTS.md
+
+      - name: Publish benchmark report to the run summary
+        if: always()
+        run: cat benchmark/RESULTS.md >> "$GITHUB_STEP_SUMMARY"

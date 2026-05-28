@@ -1,0 +1,8 @@
+{
+  "id": "B10-workflow-benign",
+  "label": "benign",
+  "surface": "workflow",
+  "description": "Adds standard CI steps: read-only token, pinned action, ubuntu-latest.",
+  "expectFlagged": false,
+  "expectKinds": []
+}

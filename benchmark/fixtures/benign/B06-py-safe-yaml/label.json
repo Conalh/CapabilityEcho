@@ -1,0 +1,8 @@
+{
+  "id": "B06-py-safe-yaml",
+  "label": "benign",
+  "surface": "source",
+  "description": "Loads config with yaml.safe_load — the safe path, no eval/deserialize risk.",
+  "expectFlagged": false,
+  "expectKinds": []
+}

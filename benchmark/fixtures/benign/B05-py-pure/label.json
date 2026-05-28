@@ -1,0 +1,8 @@
+{
+  "id": "B05-py-pure",
+  "label": "benign",
+  "surface": "source",
+  "description": "Adds a pure numeric helper in Python.",
+  "expectFlagged": false,
+  "expectKinds": []
+}

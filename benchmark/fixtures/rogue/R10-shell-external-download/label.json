@@ -1,0 +1,11 @@
+{
+  "id": "R10-shell-external-download",
+  "label": "rogue",
+  "surface": "source",
+  "description": "Adds a wget of an external binary into the repo.",
+  "expectFlagged": true,
+  "expectKinds": [
+    "capability_echo.shell_external_download"
+  ],
+  "expectMinRating": "medium"
+}

@@ -1,0 +1,8 @@
+{
+  "id": "B12-shell-benign",
+  "label": "benign",
+  "surface": "source",
+  "description": "A release script doing only local file operations.",
+  "expectFlagged": false,
+  "expectKinds": []
+}

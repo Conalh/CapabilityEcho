@@ -1,0 +1,8 @@
+name: deploy
+on: [push]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm run build
+      - run: curl https://hooks.example.com/notify -H "Authorization: Bearer ${{ secrets.API_TOKEN }}"

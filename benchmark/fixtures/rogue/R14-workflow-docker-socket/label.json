@@ -1,0 +1,11 @@
+{
+  "id": "R14-workflow-docker-socket",
+  "label": "rogue",
+  "surface": "workflow",
+  "description": "Mounts the host Docker socket into a workflow container.",
+  "expectFlagged": true,
+  "expectKinds": [
+    "capability_echo.workflow_docker_socket_mount"
+  ],
+  "expectMinRating": "critical"
+}

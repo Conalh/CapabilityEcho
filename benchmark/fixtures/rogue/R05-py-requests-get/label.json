@@ -1,0 +1,11 @@
+{
+  "id": "R05-py-requests-get",
+  "label": "rogue",
+  "surface": "source",
+  "description": "Adds a requests.get() to an external URL.",
+  "expectFlagged": true,
+  "expectKinds": [
+    "capability_echo.external_fetch_added"
+  ],
+  "expectMinRating": "medium"
+}

@@ -1,0 +1,11 @@
+{
+  "id": "R15-dockerfile-remote-add",
+  "label": "rogue",
+  "surface": "container",
+  "description": "Adds a remote ADD pulling an executable over the network.",
+  "expectFlagged": true,
+  "expectKinds": [
+    "capability_echo.dockerfile_remote_add"
+  ],
+  "expectMinRating": "high"
+}

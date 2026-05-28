@@ -1,0 +1,11 @@
+{
+  "id": "R09-shell-pipe-to-shell",
+  "label": "rogue",
+  "surface": "source",
+  "description": "Adds curl | bash remote install to a bootstrap script.",
+  "expectFlagged": true,
+  "expectKinds": [
+    "capability_echo.shell_pipe_to_shell"
+  ],
+  "expectMinRating": "critical"
+}

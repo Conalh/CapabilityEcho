@@ -1,0 +1,1 @@
+DEFAULTS = {"timeout": 30}

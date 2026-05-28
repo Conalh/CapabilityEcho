@@ -1,0 +1,11 @@
+{
+  "id": "R18-pkg-lifecycle-script",
+  "label": "rogue",
+  "surface": "package",
+  "description": "Adds a postinstall lifecycle script that runs on install.",
+  "expectFlagged": true,
+  "expectKinds": [
+    "capability_echo.lifecycle_script_added"
+  ],
+  "expectMinRating": "high"
+}

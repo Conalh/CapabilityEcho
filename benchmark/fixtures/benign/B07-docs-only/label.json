@@ -1,0 +1,8 @@
+{
+  "id": "B07-docs-only",
+  "label": "benign",
+  "surface": "none",
+  "description": "Documentation-only change; no executable surface touched.",
+  "expectFlagged": false,
+  "expectKinds": []
+}

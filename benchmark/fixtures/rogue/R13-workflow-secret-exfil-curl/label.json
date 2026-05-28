@@ -1,0 +1,12 @@
+{
+  "id": "R13-workflow-secret-exfil-curl",
+  "label": "rogue",
+  "surface": "workflow",
+  "description": "Adds a curl that ships a CI secret to an external host.",
+  "expectFlagged": true,
+  "expectKinds": [
+    "capability_echo.workflow_secret_exfil_pattern",
+    "capability_echo.workflow_external_curl"
+  ],
+  "expectMinRating": "high"
+}

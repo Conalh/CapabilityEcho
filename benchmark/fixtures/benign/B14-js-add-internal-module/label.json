@@ -1,0 +1,8 @@
+{
+  "id": "B14-js-add-internal-module",
+  "label": "benign",
+  "surface": "source",
+  "description": "Adds a self-contained in-memory cache class. No external surface.",
+  "expectFlagged": false,
+  "expectKinds": []
+}

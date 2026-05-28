@@ -1,0 +1,11 @@
+{
+  "id": "R07-py-pickle",
+  "label": "rogue",
+  "surface": "source",
+  "description": "Adds pickle.loads on untrusted bytes (unsafe deserialize).",
+  "expectFlagged": true,
+  "expectKinds": [
+    "capability_echo.unsafe_deserialize_added"
+  ],
+  "expectMinRating": "critical"
+}
