@@ -1,6 +1,6 @@
 {
   "name": "capabilityecho",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Code review for AI agent capability drift in pull requests.",
   "type": "module",
   "bin": {

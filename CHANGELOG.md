@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Under v1.0, minor versions may carry breaking changes.
 
+## [0.3.0] — 2026-05-28
+
+### Changed
+- **GitHub annotations are now severity-aware.** `high` and `critical` findings emit `::error` annotations; `medium` and `low` stay `::warning`. This matches the annotation contract in agent-gov-core (and GovVerdict), so a critical capability drift no longer shows up as a yellow warning in the PR diff. Exit-code gating is unchanged — that is still controlled by `--fail-on`.
+
+### Added
+- Labeled precision/recall benchmark over the capability-drift fixture corpus (`npm run benchmark`).
+
+### Internal
+- Bumped `agent-gov-core` dependency `^1.0.0` → `^1.2.1`.
+
 ## [0.2.1] — 2026-05-22
 
 ### Fixed

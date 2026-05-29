@@ -70,7 +70,7 @@ test('CLI emits Markdown capability summary', async () => {
   assert.match(stdout, /postinstall/);
 });
 
-test('CLI emits GitHub warning annotations', async () => {
+test('CLI emits severity-aware GitHub annotations', async () => {
   const oldDir = join(testDir, 'fixtures', 'capability-drift', 'old');
   const newDir = join(testDir, 'fixtures', 'capability-drift', 'new');
 
@@ -80,9 +80,13 @@ test('CLI emits GitHub warning annotations', async () => {
     { cwd: packageRoot }
   );
 
-  assert.match(stdout, /::warning file=src\/api\/sync\.ts,line=/);
-  assert.match(stdout, /::warning file=package\.json,line=/);
-  assert.match(stdout, /::warning file=\.github\/workflows\/ci\.yml,line=/);
+  // medium/low stay ::warning; high/critical escalate to ::error to match
+  // agent-gov-core's annotation contract.
+  assert.match(stdout, /::warning file=src\/api\/sync\.ts,line=.*medium/);
+  assert.match(stdout, /::error file=\.github\/workflows\/ci\.yml,line=7,title=CapabilityEcho high/);
+  assert.match(stdout, /::error file=package\.json,line=6,title=CapabilityEcho high/);
+  assert.match(stdout, /::error file=package\.json,line=6,title=CapabilityEcho critical/);
+  assert.match(stdout, /::warning file=package\.json,line=6,title=CapabilityEcho medium/);
 });
 
 test('clean fixture returns rating none', async () => {
