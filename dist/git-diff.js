@@ -128,6 +128,12 @@ async function listScannableFiles(root, current = '') {
         if (entry.name === 'node_modules' || entry.name === '.git') {
             continue;
         }
+        // Never follow symlinks: in directory mode the tree is untrusted, and a
+        // symlinked entry could point outside the scanned root (e.g. /etc/passwd
+        // or a sibling checkout), leaking its contents into finding evidence.
+        if (entry.isSymbolicLink()) {
+            continue;
+        }
         const relativePath = current ? `${current}/${entry.name}` : entry.name;
         if (entry.isDirectory()) {
             files.push(...(await listScannableFiles(root, relativePath)));
@@ -228,6 +234,10 @@ export async function listPackageJsonFiles(root, current = '') {
     const files = [];
     for (const entry of entries) {
         if (entry.name === 'node_modules' || entry.name === '.git') {
+            continue;
+        }
+        // See listScannableFiles: do not follow symlinks out of an untrusted tree.
+        if (entry.isSymbolicLink()) {
             continue;
         }
         const relativePath = current ? `${current}/${entry.name}` : entry.name;

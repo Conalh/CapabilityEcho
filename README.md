@@ -87,7 +87,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0          # required: PR base + head are compared
-      - uses: Conalh/CapabilityEcho@v0.3.0
+      - uses: Conalh/CapabilityEcho@v0.3.1
         with:
           fail-on: none           # start advisory, raise to high/critical later
 ```

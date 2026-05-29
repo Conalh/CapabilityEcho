@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Under v1.0, minor versions may carry breaking changes.
 
+## [0.3.1] — 2026-05-28
+
+### Security
+- **Directory mode no longer follows symlinks out of the scanned tree.** When invoked with `--old`/`--new` (directory comparison), the file walk treated symlinked entries like any other file and read their targets, so a symlink committed into an untrusted tree could point at `/etc/passwd` or a sibling checkout and leak that content into finding evidence. Both directory walks (`listScannableFiles` and `listPackageJsonFiles`) now skip symlinked entries. Git mode (`git show <ref>:<path>`) was never affected; detection on legitimate trees is unchanged.
+
 ## [0.3.0] — 2026-05-28
 
 ### Changed
