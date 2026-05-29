@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process';
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { promisify } from 'node:util';
+import { isValidGitRef, resolveWithinRoot, withinByteCap } from 'agent-gov-core';
 import { isScannable, surfaceForPath } from './paths.js';
 import type { AddedLine, DiffContext, FindingSurface } from './types.js';
 
@@ -26,8 +27,14 @@ export async function collectDirectoryDiff(oldRoot: string, newRoot: string): Pr
   const newFileContents: Record<string, string> = {};
 
   for (const file of changedFiles) {
-    const oldPath = join(oldRoot, file);
-    const newPath = join(newRoot, file);
+    const oldPath = resolveWithinRoot(oldRoot, file);
+    const newPath = resolveWithinRoot(newRoot, file);
+    if (oldPath === null || newPath === null) {
+      // listScannableFiles only yields paths it walked itself, so a null
+      // here means a crafted entry tried to escape the root — skip it
+      // rather than read outside the scanned tree.
+      continue;
+    }
     const newContent = await readFile(newPath, 'utf8');
     const patch = await runGitNoIndexDiff(oldPath, newPath);
     if (patch.trim()) {
@@ -171,7 +178,12 @@ async function listScannableFiles(root: string, current = ''): Promise<string[]>
     }
 
     if (isScannable(relativePath)) {
-      files.push(relativePath.replace(/\\/g, '/'));
+      // Skip files over the shared 10 MiB input cap so an outsized file
+      // in an untrusted tree can't exhaust memory when read and scanned.
+      const stats = await stat(join(root, relativePath));
+      if (withinByteCap(stats.size)) {
+        files.push(relativePath.replace(/\\/g, '/'));
+      }
     }
   }
 
@@ -218,6 +230,17 @@ function allLinesAsAdded(file: string, content: string): AddedLine[] {
 }
 
 async function gitRefExists(repo: string, ref: string): Promise<boolean> {
+  // String-level argument-injection guard, shared across the suite via
+  // agent-gov-core. `execFile` blocks shell metacharacters, but git
+  // re-parses a positional ref against its own option table — so a
+  // `-`-leading ref (`--upload-pack=...`) is a flag-injection vector, and
+  // a `:` would re-anchor the `ref:path` object selector readFileAtGitRef
+  // builds. Treat an injection-vector ref as "does not exist" so the
+  // value never reaches a git subprocess; collectGitDiff then surfaces a
+  // clean GitDiffSetupError.
+  if (!isValidGitRef(ref)) {
+    return false;
+  }
   try {
     await execFileAsync('git', ['-C', repo, 'rev-parse', '--verify', `${ref}^{commit}`]);
     return true;
@@ -301,7 +324,12 @@ export async function listPackageJsonFiles(root: string, current = ''): Promise<
     }
 
     if (entry.name === 'package.json') {
-      files.push(relativePath.replace(/\\/g, '/'));
+      // Same input cap as listScannableFiles: never read an oversized
+      // manifest from an untrusted tree.
+      const stats = await stat(join(root, relativePath));
+      if (withinByteCap(stats.size)) {
+        files.push(relativePath.replace(/\\/g, '/'));
+      }
     }
   }
 

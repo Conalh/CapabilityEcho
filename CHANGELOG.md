@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Under v1.0, minor versions may carry breaking changes.
 
+## [0.3.2] — 2026-05-28
+
+### Security
+- **Added the git-ref argument-injection guard the detector was missing.** Git mode now rejects refs that git would re-parse as CLI flags (`-`-leading, e.g. `--upload-pack=...`) or as `ref:path` object selectors (containing `:`), plus control characters, before any `git` subprocess runs. Previously only `rev-parse --verify` stood between an untrusted ref and git. The guard is the shared `isValidGitRef` from agent-gov-core 1.3.0; an injection-vector ref now surfaces as a clean `GitDiffSetupError`.
+- **Directory-mode walks now skip files larger than the shared 10 MiB input cap** (`withinByteCap`), so a single huge file in an untrusted tree can't exhaust memory when read and scanned. Applies to both the source walk and the `package.json` walk.
+
+### Internal
+- Directory-mode path joins now go through core `resolveWithinRoot` for explicit root-containment (defense-in-depth alongside the existing symlink skip). Bumped `agent-gov-core` `^1.2.1` → `^1.3.0`.
+
 ## [0.3.1] — 2026-05-28
 
 ### Security

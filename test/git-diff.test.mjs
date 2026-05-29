@@ -518,6 +518,19 @@ test('git diff exposes missing refs as setup errors', async () => {
   }
 });
 
+test('collectGitDiff refuses refs git would re-parse as flags or object selectors', async () => {
+  // The shared isValidGitRef guard rejects these before any git
+  // subprocess runs (the repo path is never touched); CapabilityEcho
+  // surfaces the refusal as a GitDiffSetupError.
+  const gitDiff = await import('../dist/git-diff.js');
+  for (const badRef of ['--upload-pack=/tmp/x', 'HEAD:secret']) {
+    await assert.rejects(
+      () => gitDiff.collectGitDiff(tmpdir(), badRef, badRef),
+      (error) => error instanceof gitDiff.GitDiffSetupError
+    );
+  }
+});
+
 test('directory mode does not follow symlinks pointing outside the scanned tree', async (t) => {
   const base = await mkdtemp(join(tmpdir(), 'capabilityecho-symlink-base-'));
   const head = await mkdtemp(join(tmpdir(), 'capabilityecho-symlink-head-'));
