@@ -27,6 +27,18 @@ flowchart LR
 
 **See also:** [ScopeTrail](https://github.com/Conalh/ScopeTrail) for config drift · [TaskBound](https://github.com/Conalh/TaskBound) for task-vs-diff scope creep · [GovVerdict](https://github.com/Conalh/GovVerdict) for one merged suite verdict.
 
+<!-- TODO: add 10s demo GIF here -->
+
+**Quick start** — run it on the bundled fixture:
+
+```bash
+git clone https://github.com/Conalh/CapabilityEcho && cd CapabilityEcho
+npm install && npm run build
+node dist/index.js diff --old test/fixtures/capability-drift/old --new test/fixtures/capability-drift/new --format markdown
+```
+
+Prefer CI? A drop-in GitHub Action (advisory by default) and a real fixture run are in the Quickstart and Example output below.
+
 ## Where this fits
 
 CapabilityEcho is the **capability-drift** detector — it flags code that gains new executable power on the exact lines a PR added.
