@@ -72,14 +72,11 @@ CapabilityEcho exists to make those new executable capabilities reviewable. It d
 | **Workflow capability** | New write permissions, external requests, secret exposure patterns, risky PR-target flows. |
 | **Dependency capability** | New high-capability packages or lockfile changes that introduce sensitive behavior. |
 
-## How well it catches it
+## How well it catches it (and what the numbers do *not* mean)
 
-The thing that separates a linter from a tool you can gate CI on is a labeled
-precision/recall number. CapabilityEcho ships one: a corpus of 34 before/after PR
-snapshots — 20 rogue (a new capability quietly added) and 14 benign adversarial
-near-misses (same-origin `fetch`, `yaml.safe_load`, ordinary dep adds, refactors)
-— scored against ground-truth labels written from intent, independent of what the
-tool emits.
+CapabilityEcho ships a labeled corpus of 34 before/after PR snapshots — 20 rogue
+(a new capability quietly added) and 14 benign adversarial near-misses (same-origin
+`fetch`, `yaml.safe_load`, ordinary dep adds, refactors).
 
 | Metric | Value |
 | --- | --- |
@@ -90,10 +87,18 @@ tool emits.
 | Recall at `--fail-on=high` CI gate | 85.0% |
 | Correct primary capability identified | 20/20 |
 
-Every rogue case is detected and every benign near-miss stays quiet. The 85% at a
-`high` gate is calibration, not a miss: three rogue cases (an external `fetch`, a
-Python `requests.get`, a `wget` download) are genuinely *medium*-severity — gate on
-`medium` to fail CI on every rogue case in the corpus.
+**Read this as a specification and regression suite, not an evaluation against
+independent ground truth.** The detectors and the fixtures share an author, so
+100% precision / 0% FP means the detectors do what they were designed to do and
+keep doing it across changes — it does *not* show they catch what real agents or
+adversaries produce in the wild. Each rogue fixture is also a single, textbook
+pattern instance; real PRs are messier. Treat these numbers as "the tool behaves
+to spec," and read [Threat model and limits](#threat-model-and-limits) for what
+that spec deliberately does and does not cover.
+
+The 85% at a `high` gate is calibration, not a miss: three rogue cases (an external
+`fetch`, a Python `requests.get`, a `wget` download) are genuinely *medium*-severity
+— gate on `medium` to fail CI on every rogue case in the corpus.
 
 Reproduce with `npm run benchmark`. Methodology and the full corpus live in
 [`benchmark/`](benchmark/README.md); the regenerated report is
@@ -200,12 +205,41 @@ Top recommendations: Replace remote pipe-to-shell patterns with pinned, reviewab
 
 CapabilityEcho does **not** scan agent config files like `.mcp.json` or `.claude/settings.json`; that is [ScopeTrail](https://github.com/Conalh/ScopeTrail)'s lane. The two are designed to run together.
 
+## Threat model and limits
+
+**CapabilityEcho is built for the careless-but-honest author, not the motivated
+evader.** It catches capability drift from naive agents and ordinary mistakes —
+code that gains real new power and is written the obvious way. It is *not* an
+adversarial control: regex-over-added-lines is trivially defeated by anyone who
+wants to defeat it (indirection, aliasing, computed member access, string
+concatenation, base64, `require`-by-variable). If your threat is a deliberately
+evasive author, this tool is the wrong layer — push enforcement to runtime
+([warden](https://github.com/Conalh/warden), [barbican](https://github.com/Conalh/barbican)),
+where capability is observed rather than pattern-matched.
+
+Concrete limits worth knowing before you trust a verdict:
+
+- **Severity and evadability are inversely correlated here.** The highest-severity
+  classes are the easiest to slip past. Secret-exfil is the clearest case: the most
+  natural real pattern is a URL or token defined in an *unchanged* file and merely
+  referenced in the diff — and CapabilityEcho does not do cross-file taint, so it
+  never sees the source. A *clean* CapabilityEcho run is not evidence that no
+  exfiltration path exists; it is evidence that none was introduced in the obvious,
+  single-file, added-line way.
+- **JS/TS and Python are matched textually, not structurally.** Workflows get a
+  structural YAML pass, but source detectors are pattern-based, so aliased imports,
+  destructuring, and member-expression call targets can be missed. Closing this is
+  on the roadmap (see below).
+- **Added-line bias by design.** Capability that already existed in the base, or
+  that is reachable only through unchanged code, is out of scope on purpose.
+
 ## Design choices worth flagging
 
 - **Code, not config.** The tool catches capabilities introduced by executable artifacts even when the agent policy surface did not change.
 - **Added-line bias.** Findings stay tied to what the PR introduced, which keeps review focused on the current change.
 - **Small detectors.** The scanner is intentionally explicit and explainable instead of pretending to be a full semantic security engine.
 - **Suite-shaped output.** JSON uses the shared `Finding` contract so GovVerdict can merge it with the rest of the agent-gov tools.
+- **Roadmap: structural source parsing.** Workflows are already parsed structurally; JS/TS (`typescript` is a dependency) and Python source are next, to resolve aliased imports, destructuring, and member-expression call targets instead of matching them textually. This closes a class of single-file bypasses at once — it does not address cross-file taint, which is a separate, larger effort.
 
 ## Options
 

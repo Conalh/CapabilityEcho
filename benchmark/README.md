@@ -1,9 +1,16 @@
 # CapabilityEcho benchmark
 
-A labeled precision/recall benchmark for CapabilityEcho's capability-drift
-detection. It answers the only question that separates a linter from a tool you
-can put in CI: **when an agent's PR quietly adds a new capability, does
+A labeled regression suite for CapabilityEcho's capability-drift detection. It
+answers: **when an agent's PR adds a capability the obvious way, does
 CapabilityEcho catch it — and does it stay quiet on ordinary changes?**
+
+> **Read this as a specification and regression suite, not an evaluation against
+> independent ground truth.** The detectors and these fixtures share an author, so
+> a perfect score means the detectors behave to spec and keep doing so as the code
+> changes — it does *not* show how well the tool generalizes to what real agents or
+> adversaries produce, and each rogue case here is a single textbook pattern. For
+> what the tool deliberately does and does not cover, see the README's
+> [Threat model and limits](../README.md#threat-model-and-limits).
 
 ## Latest results
 
