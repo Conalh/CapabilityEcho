@@ -8,6 +8,7 @@ import { detectPythonDeps } from './detectors/python-deps.js';
 import { detectShellCapability } from './detectors/shell-capability.js';
 import { detectWorkflowPermissions } from './detectors/workflow-permissions.js';
 import { detectWorkflowStructure } from './detectors/workflow-structure.js';
+import { applyExceptionBaseline } from './exceptions.js';
 import { collectDirectoryDiff, collectGitDiff } from './git-diff.js';
 import { createReport } from './report.js';
 export async function runCapabilityDiff(options) {
@@ -29,13 +30,24 @@ export async function runCapabilityDiff(options) {
         ...detectDockerfileCapability(context.addedLines),
         ...detectJsCapability(context.addedLines, context.newFileContents),
         ...detectPyCapability(context.addedLines, context.newFileContents),
-        ...detectShellCapability(context.addedLines),
+        ...detectShellCapability(context.addedLines, context.newFileContents),
         ...scriptFindings,
         ...depFindings,
         ...pythonDepFindings,
         ...lockfileFindings
     ]);
-    return createReport(findings, context);
+    const exceptionResult = await applyExceptionBaseline(findings, options.mode === 'directories'
+        ? { mode: 'directories', root: options.newRoot, exceptionsFile: options.exceptionsFile }
+        : { mode: 'git', repo: options.repo, head: options.head, exceptionsFile: options.exceptionsFile });
+    const finalContext = {
+        ...context,
+        analysisIncomplete: context.analysisIncomplete || exceptionResult.diagnostics.length > 0,
+        analysisDiagnostics: [...context.analysisDiagnostics, ...exceptionResult.diagnostics]
+    };
+    return createReport(exceptionResult.findings, finalContext, {
+        suppressedFindingCount: exceptionResult.suppressedFindingCount,
+        expiredExceptionCount: exceptionResult.expiredExceptionCount
+    });
 }
 // Two-stage dedup:
 //   1. Drop exact-duplicate (kind, file, line) entries — the structural and

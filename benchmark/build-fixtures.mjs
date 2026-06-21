@@ -10,12 +10,14 @@
 // the tool happens to emit. A rogue case that the tool misses is a real
 // false negative and must show up as one in the numbers.
 
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = join(here, 'fixtures');
+const checkMode = process.argv.includes('--check');
 
 const L = (...lines) => lines.join('\n') + '\n';
 
@@ -664,16 +666,14 @@ async function writeTree(root, files) {
   }
 }
 
-async function main() {
-  await rm(fixturesDir, { recursive: true, force: true });
-
+async function materializeFixtures(targetDir) {
   const ids = new Set();
   for (const c of cases) {
     if (ids.has(c.id)) throw new Error(`duplicate case id: ${c.id}`);
     ids.add(c.id);
 
     const classDir = c.label === 'rogue' ? 'rogue' : 'benign';
-    const caseDir = join(fixturesDir, classDir, c.id);
+    const caseDir = join(targetDir, classDir, c.id);
     await writeTree(join(caseDir, 'before'), c.before);
     await writeTree(join(caseDir, 'after'), c.after);
 
@@ -691,7 +691,75 @@ async function main() {
 
   const rogue = cases.filter((c) => c.label === 'rogue').length;
   const benign = cases.length - rogue;
-  process.stdout.write(`Materialized ${cases.length} fixtures (${rogue} rogue, ${benign} benign) under ${fixturesDir}\n`);
+  return { total: cases.length, rogue, benign };
+}
+
+async function main() {
+  if (checkMode) {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'capabilityecho-fixtures-'));
+    try {
+      const generatedDir = join(tempRoot, 'fixtures');
+      await materializeFixtures(generatedDir);
+      const drift = await compareTrees(fixturesDir, generatedDir);
+      if (drift.length > 0) {
+        process.stderr.write('Benchmark fixtures do not match benchmark/build-fixtures.mjs:\n');
+        for (const item of drift) {
+          process.stderr.write(`- ${item}\n`);
+        }
+        process.exit(1);
+      }
+      process.stdout.write('Benchmark fixtures match benchmark/build-fixtures.mjs\n');
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+    return;
+  }
+
+  await rm(fixturesDir, { recursive: true, force: true });
+  const counts = await materializeFixtures(fixturesDir);
+  process.stdout.write(`Materialized ${counts.total} fixtures (${counts.rogue} rogue, ${counts.benign} benign) under ${fixturesDir}\n`);
 }
 
 await main();
+
+async function compareTrees(expectedRoot, actualRoot) {
+  const expectedFiles = await listFiles(expectedRoot);
+  const actualFiles = await listFiles(actualRoot);
+  const allFiles = [...new Set([...expectedFiles, ...actualFiles])].sort();
+  const drift = [];
+
+  for (const file of allFiles) {
+    if (!expectedFiles.includes(file)) {
+      drift.push(`unexpected generated file ${file}`);
+      continue;
+    }
+    if (!actualFiles.includes(file)) {
+      drift.push(`missing generated file ${file}`);
+      continue;
+    }
+
+    const expected = await readFile(join(expectedRoot, file), 'utf8');
+    const actual = await readFile(join(actualRoot, file), 'utf8');
+    if (expected !== actual) {
+      drift.push(`content differs for ${file}`);
+    }
+  }
+
+  return drift;
+}
+
+async function listFiles(root, current = '') {
+  const entries = await readdir(join(root, current), { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const relative = current ? `${current}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      files.push(...(await listFiles(root, relative)));
+      continue;
+    }
+    if (entry.isFile()) {
+      files.push(relative.replace(/\\/g, '/'));
+    }
+  }
+  return files.sort();
+}

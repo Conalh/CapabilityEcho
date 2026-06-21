@@ -11,13 +11,21 @@ permissions:
 
 jobs:
   build-test:
+    name: Node ${{ matrix.node-version }} build/test
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 24]
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # actions/checkout@v6
         with:
-          node-version: 24
+          fetch-depth: 0
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
           cache: npm
 
       - run: npm ci
@@ -27,4 +35,31 @@ jobs:
       - name: Verify dist matches source (run `npm run build && git add dist/` if this fails)
         run: git diff --exit-code -- dist
 
+      - name: Smoke-test bundled Action entrypoint
+        run: node dist/action-bundle/index.js
+        env:
+          INPUT_FAIL_ON: none
+          INPUT_MAX_FINDINGS: '20'
+          INPUT_MAX_OUTPUT_BYTES: '65536'
+
       - run: npm test
+
+  windows-paths:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: Exercise git and CLI path handling on Windows
+        run: node --test test/git-diff.test.mjs test/cli-output.test.mjs

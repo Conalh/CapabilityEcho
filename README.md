@@ -66,8 +66,8 @@ CapabilityEcho exists to make those new executable capabilities reviewable. It d
 
 | Drift class | Example |
 | --- | --- |
-| **Network capability** | Added `fetch`, HTTP clients, workflow `curl`, or networky npm scripts. |
-| **Subprocess capability** | Added shell/process execution, dynamic command construction, or shell pipelines. |
+| **Network capability** | Added `fetch`, HTTP clients, dynamic endpoint calls, workflow/composite-action `curl`, or networky npm scripts. |
+| **Subprocess capability** | Added shell/process execution, dynamic command construction, shell pipelines, or extensionless shebang scripts. |
 | **Lifecycle capability** | `postinstall`, publish scripts, pipe-to-shell installers, or package hooks. |
 | **Workflow capability** | New write permissions, external requests, secret exposure patterns, risky PR-target flows. |
 | **Dependency capability** | New high-capability packages or lockfile changes that introduce sensitive behavior. |
@@ -81,9 +81,9 @@ CapabilityEcho ships a labeled corpus of 34 before/after PR snapshots — 20 rog
 | Metric | Value |
 | --- | --- |
 | Cases | 34 (20 rogue, 14 benign) |
-| Detection recall (any finding) | 100.0% |
-| False-positive rate (benign flagged) | 0.0% |
-| Precision | 100.0% |
+| Detection recall on this committed corpus (any finding) | 100.0% |
+| False-positive rate on this committed benign corpus | 0.0% |
+| Precision on this committed corpus | 100.0% |
 | Recall at `--fail-on=high` CI gate | 85.0% |
 | Correct primary capability identified | 20/20 |
 
@@ -99,6 +99,11 @@ that spec deliberately does and does not cover.
 The 85% at a `high` gate is calibration, not a miss: three rogue cases (an external
 `fetch`, a Python `requests.get`, a `wget` download) are genuinely *medium*-severity
 — gate on `medium` to fail CI on every rogue case in the corpus.
+
+`npm run benchmark` is a gating regression check: it fails if a rogue fixture is
+missed, a benign fixture is flagged, an expected kind/severity is lost, the
+fixture generator drifts from committed fixtures, or the git-mode / bundled
+Action probes fail.
 
 Reproduce with `npm run benchmark`. Methodology and the full corpus live in
 [`benchmark/`](benchmark/README.md); the regenerated report is
@@ -198,12 +203,34 @@ Top recommendations: Replace remote pipe-to-shell patterns with pinned, reviewab
 ## How it works
 
 - Runs against the **checked-out repo** — no upload, no hosted scanner, no telemetry.
-- Resolves the diff (`--old`/`--new` directories, or `--base`/`--head` git refs) and inspects **added lines** across source code, package manifests + lockfiles, GitHub workflows, and Dockerfiles.
+- Resolves the diff (`--old`/`--new` directories, or `--base`/`--head` git refs) and inspects **added lines** across source code (`.js/.ts/.mjs/.cjs/.mts/.cts`, Python, shell, extensionless shell shebangs), package manifests + lockfiles, GitHub workflows/composite actions, and Dockerfile/Containerfile builds.
 - Fires small, explicit detectors for patterns that expand capability: external network calls, subprocess/shell spawns, dynamic `eval`/`exec`, unsafe deserialization, high-capability deps, npm lifecycle and pipe-to-shell scripts, workflow write permissions and external requests, secret-tainted exfil patterns.
 - Workflows get a structural YAML pass backed by a line pass for shell text inside `run:` blocks.
 - Findings carry severity, file + line, and a recommendation. The action exits non-zero only when `fail-on` is met.
+- Checked-in exception baselines can suppress known findings, but suppression counts remain in report metadata and expired exceptions re-surface as low-severity findings.
 
 CapabilityEcho does **not** scan agent config files like `.mcp.json` or `.claude/settings.json`; that is [ScopeTrail](https://github.com/Conalh/ScopeTrail)'s lane. The two are designed to run together.
+
+## Exception baselines
+
+CapabilityEcho auto-loads `.capabilityecho-exceptions.json` from the candidate tree/head when present. You can override the path with `--exceptions <path>` or the Action `exceptions-file` input.
+
+```json
+{
+  "exceptions": [
+    {
+      "kind": "capability_echo.external_fetch_added",
+      "pathPrefix": "src/vendor/",
+      "expires": "2026-12-31",
+      "reason": "Legacy vendor updater is approved until replacement lands."
+    }
+  ]
+}
+```
+
+Rules use the shared `agent-gov-core` exception shape: `kind` is required; `salientKey` and `pathPrefix` narrow the match; `expires` makes stale exceptions visible; `reason` is required by CapabilityEcho so every suppression has a checked-in justification. Active matches are removed from findings and counted as `suppressedFindingCount`. Expired matches reappear with a low severity, an `[EXPIRED WHITELIST]` message prefix, and `data.exceptionReason` in JSON.
+
+Invalid exception files do not suppress anything. They mark `analysisIncomplete`, add an `exception_config_error` diagnostic, and keep all findings visible. Input-read and parser diagnostics are not findings and cannot be suppressed by exception rules.
 
 ## Threat model and limits
 
@@ -227,9 +254,10 @@ Concrete limits worth knowing before you trust a verdict:
   exfiltration path exists; it is evidence that none was introduced in the obvious,
   single-file, added-line way.
 - **JS/TS and Python are matched textually, not structurally.** Workflows get a
-  structural YAML pass, but source detectors are pattern-based, so aliased imports,
-  destructuring, and member-expression call targets can be missed. Closing this is
-  on the roadmap (see below).
+  structural YAML pass, but source detectors are pattern-based. They catch literal
+  external URLs, added dynamic endpoint variables, and some same-file continuation
+  arguments, but aliased imports, destructuring, and complex member-expression call
+  targets can still be missed. Closing this is on the roadmap (see below).
 - **Added-line bias by design.** Capability that already existed in the base, or
   that is reachable only through unchanged code, is out of scope on purpose.
 
@@ -249,6 +277,7 @@ Concrete limits worth knowing before you trust a verdict:
 | --- | --- | --- |
 | `--old <dir>` / `--new <dir>` | — | Directory-mode diff. |
 | `--repo <path>` / `--base <ref>` / `--head <ref>` | repo = cwd | Git-mode diff between two refs in a real repo. |
+| `--exceptions <path>` | `.capabilityecho-exceptions.json` when present | Repo-relative JSON exception baseline loaded from the new directory or head ref. |
 | `--format` | `text` | `text`, `markdown`, `json` (canonical envelope), `github` (annotations). |
 | `--fail-on` | `none` | Exit non-zero if the highest finding meets this severity: `none`, `low`, `medium`, `high`, `critical`. |
 
@@ -262,10 +291,11 @@ Concrete limits worth knowing before you trust a verdict:
 | `max-findings` | `0` (unlimited) | Truncate Action outputs + step summary to top-N by severity. Rating and `fail-on` still use the full set. |
 | `max-output-bytes` | `0` (unlimited) | Suppress `report-markdown` / `report-json` Action outputs over this size (step summary kept). |
 | `report-file` | _empty_ | Path to write the full Markdown report (plus a sibling `.json`). Pair with `actions/upload-artifact`. |
+| `exceptions-file` | `.capabilityecho-exceptions.json` when present | Repo-relative JSON exception baseline loaded from the candidate ref. |
 
 ### GitHub Action outputs
 
-`rating`, `has-findings`, `finding-count`, `changed-file-count`, `surface-summary`, `severity-summary`, `capability-summary`, `top-recommendations`, `adoption-evidence`, `report-markdown`, `report-json`.
+`rating`, `has-findings`, `finding-count`, `changed-file-count`, `analysis-incomplete`, `analysis-diagnostic-count`, `analysis-diagnostics`, `suppressed-finding-count`, `expired-exception-count`, `surface-summary`, `severity-summary`, `capability-summary`, `top-recommendations`, `adoption-evidence`, `report-markdown`, `report-json`.
 
 ## Part of the agent-gov suite
 

@@ -44,8 +44,7 @@ test('bypass: workflow PR-head via clone_url and refs/pull/N/merge under pull_re
     (finding) => finding.kind === 'capability_echo.workflow_pr_head_checkout_on_target'
   );
   assert.ok(headFindings.length >= 2, `expected at least 2 PR-head findings, got ${headFindings.length}`);
-  assert.ok(
-    headFindings.some((finding) => /clone_url/i.test(finding.message) || true),
-    'PR-head findings should cover the clone_url and refs/pull/N/merge lines'
-  );
+  const filesAndLines = new Set(headFindings.map((finding) => `${finding.location.file}:${finding.location.line}`));
+  assert.ok(filesAndLines.has('.github/workflows/pr-audit.yml:13'), 'expected clone_url line to be flagged');
+  assert.ok(filesAndLines.has('.github/workflows/pr-audit.yml:15'), 'expected refs/pull/N/merge line to be flagged');
 });

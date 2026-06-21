@@ -1,6 +1,4 @@
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { configPath, isRecord, lineOfJsonKey, lineOfJsonStringValue, readJsonObjectWithSource } from '../discovery.js';
+import { isRecord, lineOfJsonKey, lineOfJsonStringValue, readTextWithinRoot } from '../discovery.js';
 import { listGitChangedFiles, listPackageJsonFiles, readFileAtGitRef } from '../git-diff.js';
 import { isPackageJsonFile } from '../paths.js';
 import type { Finding } from '../types.js';
@@ -63,11 +61,7 @@ async function readScriptsAt(
 export async function readPackageTextAt(mode: PackageDiffMode, file: string, side: 'old' | 'new'): Promise<string> {
   if (mode.mode === 'directories') {
     const root = side === 'old' ? mode.oldRoot : mode.newRoot;
-    try {
-      return await readFile(configPath(root, file), 'utf8');
-    } catch {
-      return '';
-    }
+    return (await readTextWithinRoot(root, file)).text;
   }
 
   const ref = side === 'old' ? mode.base : mode.head;
@@ -128,7 +122,7 @@ function analyzeScriptContent(file: string, key: string, script: string, newText
   const findings: Finding[] = [];
   const line = lineOfJsonStringValue(newText, script) ?? lineOfJsonKey(newText, key);
 
-  if (/(?:curl[^\n|]*\|\s*(?:ba)?sh|wget[^\n|]*\|\s*sh|Invoke-Expression|iex\s*\()/i.test(script)) {
+  if (hasRemotePipeToShell(script)) {
     findings.push({
       kind: 'capability_echo.script_pipe_to_shell',
       surface: 'package',
@@ -141,7 +135,7 @@ function analyzeScriptContent(file: string, key: string, script: string, newText
     });
   }
 
-  if (/\b(curl|wget|npm publish)\b/i.test(script) || /\bnpx\b(?![^\s]*@\d+\.\d+\.\d+)/i.test(script)) {
+  if (/\b(curl|wget|npm publish)\b/i.test(script) || hasUnpinnedNpx(script)) {
     findings.push({
       kind: 'capability_echo.script_network_command',
       surface: 'package',
@@ -155,4 +149,60 @@ function analyzeScriptContent(file: string, key: string, script: string, newText
   }
 
   return findings;
+}
+
+function hasRemotePipeToShell(script: string): boolean {
+  return (
+    /\b(?:curl|wget)\b[^\n|]*https?:\/\/[^\n|]*\|\s*(?:ba)?sh\b/i.test(script) ||
+    /\b(?:Invoke-WebRequest|iwr|curl|wget)\b[^\n|]*https?:\/\/[^\n|]*\|\s*(?:iex|Invoke-Expression)\b/i.test(script) ||
+    /\b(?:iex|Invoke-Expression)\s*(?:\(|\s+)\s*(?:Invoke-WebRequest|iwr|curl|wget)\b[^)]*https?:\/\//i.test(script)
+  );
+}
+
+function hasUnpinnedNpx(script: string): boolean {
+  const npxPattern = /\bnpx\b/gi;
+  let match: RegExpExecArray | null;
+  while ((match = npxPattern.exec(script)) !== null) {
+    const rest = script.slice(match.index + match[0].length);
+    const packageToken = firstNpxPackageToken(rest);
+    if (!packageToken || !isSemverPinnedPackageToken(packageToken)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function firstNpxPackageToken(rest: string): string | undefined {
+  const tokens = rest
+    .split(/\s+/)
+    .map((token) => token.replace(/^[`'"]+|[`'",;)]+$/g, ''))
+    .filter(Boolean);
+
+  for (let i = 0; i < tokens.length; i += 1) {
+    const token = tokens[i];
+    if (/^[;&|]/.test(token)) {
+      return undefined;
+    }
+
+    if (token === '-p' || token === '--package') {
+      return tokens[i + 1];
+    }
+
+    if (token.startsWith('--package=')) {
+      return token.slice('--package='.length);
+    }
+
+    if (token.startsWith('-')) {
+      continue;
+    }
+
+    return token;
+  }
+
+  return undefined;
+}
+
+function isSemverPinnedPackageToken(token: string): boolean {
+  return /^(?:@[A-Za-z0-9_.-]+\/)?[A-Za-z0-9_.-]+@\d+\.\d+\.\d+(?:[-+][A-Za-z0-9_.-]+)?$/.test(token);
 }

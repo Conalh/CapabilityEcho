@@ -1,6 +1,5 @@
-import { readFile } from 'node:fs/promises';
 import { parseToml, lineOfTomlKey } from 'agent-gov-core';
-import { configPath } from '../discovery.js';
+import { listSafeFiles, readTextWithinRoot } from '../discovery.js';
 import { listGitChangedFiles, readFileAtGitRef } from '../git-diff.js';
 import { isPythonManifestFile } from '../paths.js';
 import type { Finding } from '../types.js';
@@ -19,7 +18,7 @@ const HIGH_CAPABILITY_PY_DEPS = new Set<string>([
   // SSH / remote execution.
   'paramiko', 'asyncssh', 'spurplus', 'spur',
   // Code-execution-shaped libraries.
-  'RestrictedPython', 'asteval',
+  'restrictedpython', 'asteval',
 ]);
 
 const TELEMETRY_PY_DEPS = new Set<string>([
@@ -48,29 +47,13 @@ export async function detectPythonDeps(mode: PythonManifestDiffMode): Promise<Fi
   return findings;
 }
 
-async function listPythonManifestFiles(root: string, current = ''): Promise<string[]> {
-  const { readdir } = await import('node:fs/promises');
-  const { join } = await import('node:path');
-  const entries = await readdir(join(root, current), { withFileTypes: true });
-  const files: string[] = [];
-
-  for (const entry of entries) {
-    if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === '.venv' || entry.name === 'venv') {
-      continue;
-    }
-
-    const relativePath = current ? `${current}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) {
-      files.push(...(await listPythonManifestFiles(root, relativePath)));
-      continue;
-    }
-
-    if (isPythonManifestFile(relativePath)) {
-      files.push(relativePath.replace(/\\/g, '/'));
-    }
-  }
-
-  return files;
+async function listPythonManifestFiles(root: string): Promise<string[]> {
+  return (
+    await listSafeFiles(root, {
+      includeFile: isPythonManifestFile,
+      excludedDirs: ['node_modules', '.git', '.venv', 'venv']
+    })
+  ).files;
 }
 
 async function listChangedPythonManifestFiles(repo: string, base: string, head: string): Promise<string[]> {
@@ -84,11 +67,7 @@ async function readManifestTextAt(
 ): Promise<string> {
   if (mode.mode === 'directories') {
     const root = side === 'old' ? mode.oldRoot : mode.newRoot;
-    try {
-      return await readFile(configPath(root, file), 'utf8');
-    } catch {
-      return '';
-    }
+    return (await readTextWithinRoot(root, file)).text;
   }
 
   const ref = side === 'old' ? mode.base : mode.head;

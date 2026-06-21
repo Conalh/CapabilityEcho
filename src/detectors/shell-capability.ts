@@ -1,11 +1,11 @@
 import type { AddedLine, Finding } from '../types.js';
-import { isCommentLine, isShellFile } from '../paths.js';
+import { hasShellShebang, isCommentLine, isShellFile } from '../paths.js';
 
-export function detectShellCapability(lines: AddedLine[]): Finding[] {
+export function detectShellCapability(lines: AddedLine[], newFileContents: Record<string, string> = {}): Finding[] {
   const findings: Finding[] = [];
 
   for (const added of lines) {
-    if (!isShellFile(added.file) || isCommentLine(added.content)) {
+    if (!isShellScannableFile(added.file, newFileContents) || isCommentLine(added.content)) {
       continue;
     }
 
@@ -16,8 +16,12 @@ export function detectShellCapability(lines: AddedLine[]): Finding[] {
   return findings;
 }
 
+function isShellScannableFile(file: string, newFileContents: Record<string, string>): boolean {
+  return isShellFile(file) || hasShellShebang(newFileContents[file]);
+}
+
 function detectPipeToShell(added: AddedLine): Finding[] {
-  if (!/(?:curl|wget|Invoke-WebRequest|iwr)[^\n|]*https?:\/\/[^\n|]*\|\s*(?:ba)?sh\b|iex\s*\(|Invoke-Expression/i.test(added.content)) {
+  if (!hasRemotePipeToShell(added.content)) {
     return [];
   }
 
@@ -33,6 +37,14 @@ function detectPipeToShell(added: AddedLine): Finding[] {
       recommendation: 'Replace remote pipe-to-shell with pinned, reviewable install steps.'
     }
   ];
+}
+
+function hasRemotePipeToShell(content: string): boolean {
+  return (
+    /\b(?:curl|wget)\b[^\n|]*https?:\/\/[^\n|]*\|\s*(?:ba)?sh\b/i.test(content) ||
+    /\b(?:Invoke-WebRequest|iwr|curl|wget)\b[^\n|]*https?:\/\/[^\n|]*\|\s*(?:iex|Invoke-Expression)\b/i.test(content) ||
+    /\b(?:iex|Invoke-Expression)\s*(?:\(|\s+)\s*(?:Invoke-WebRequest|iwr|curl|wget)\b[^)]*https?:\/\//i.test(content)
+  );
 }
 
 function detectExternalDownload(added: AddedLine): Finding[] {

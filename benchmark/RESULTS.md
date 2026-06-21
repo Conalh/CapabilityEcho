@@ -32,6 +32,17 @@ A diff is predicted "drift" when its overall rating meets the threshold. `low` =
 - All expected kinds detected: **20/20**
 - Expected minimum severity reached: **20/20**
 
+## Quality gates
+
+PASS. Benchmark metrics meet the committed regression gates.
+
+## Runtime probes
+
+| Probe | Result | Detail |
+| --- | --- | --- |
+| git mode hostile filename | PASS | expected finding on " leading-fetch.ts", got " leading-fetch.ts" |
+| candidate Action bundle | PASS | ok |
+
 ## Disagreements with ground truth
 
 None. Every rogue case produced at least one finding; no benign case did.

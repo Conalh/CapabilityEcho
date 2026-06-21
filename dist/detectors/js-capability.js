@@ -9,7 +9,7 @@ export function detectJsCapability(lines, newFileContents = {}) {
         }
         const testFile = isTestFile(added.file);
         const sameFile = linesByFile.get(added.file) ?? [];
-        findings.push(...detectFetch(added, testFile, sameFile));
+        findings.push(...detectFetch(added, testFile, sameFile, newFileContents[added.file]));
         findings.push(...detectSecretExfil(added, testFile, secretVarsByFile.get(added.file) ?? new Set(), sameFile));
         findings.push(...detectSubprocess(added, testFile));
         findings.push(...detectDynamicEval(added, testFile, sameFile));
@@ -37,6 +37,8 @@ function groupLinesByFile(lines) {
 // literal or a non-literal import specifier. 3 covers `fetch(\n  url,\n  opts\n)`
 // without picking up unrelated calls below.
 const SPLIT_LINE_LOOKAHEAD = 3;
+const JS_NETWORK_PATTERN = /(?:\bfetch\s*\(|\baxios\.(?:get|post|put|delete|patch|head|options|request)\s*\(|\bgot\s*\(|\bky\.(?:get|post|put|delete|patch|head)\s*\(|\bhttps?\.(?:get|request)\s*\(|\bundici\.(?:request|fetch|stream|pipeline)\s*\(|new\s+XMLHttpRequest\s*\()/i;
+const JS_NETWORK_ARG_PATTERN = /(?:\bfetch|\baxios\.(?:get|post|put|delete|patch|head|options|request)|\bgot|\bky\.(?:get|post|put|delete|patch|head)|\bhttps?\.(?:get|request)|\bundici\.(?:request|fetch|stream|pipeline))\s*\(\s*([^,\)]*)/i;
 function nextLines(added, sameFile) {
     const out = [];
     for (let offset = 1; offset <= SPLIT_LINE_LOOKAHEAD; offset += 1) {
@@ -107,19 +109,33 @@ function addVariable(varsByFile, file, name) {
     vars.add(name);
     varsByFile.set(file, vars);
 }
-function detectFetch(added, testFile, sameFile) {
+function detectFetch(added, testFile, sameFile, fullFileContent) {
     // Network entry points across the JS ecosystem.
     //  - fetch / axios / got / ky / node-fetch (high-level)
     //  - http(s).get / http(s).request (Node built-in low-level)
     //  - undici.request / fetch
     //  - new XMLHttpRequest (browser-shaped, sometimes in cross-target code)
-    const networkPattern = /(?:\bfetch\s*\(|\baxios\.(?:get|post|put|delete|patch|head|options|request)\s*\(|\bgot\s*\(|\bky\.(?:get|post|put|delete|patch|head)\s*\(|\bhttps?\.(?:get|request)\s*\(|\bundici\.(?:request|fetch|stream|pipeline)\s*\(|new\s+XMLHttpRequest\s*\()/i;
-    if (!networkPattern.test(added.content)) {
-        return [];
+    const isCallLine = JS_NETWORK_PATTERN.test(added.content);
+    if (!isCallLine) {
+        if (!isAddedExternalUrlArgumentUnderExistingNetworkCall(added, sameFile, fullFileContent)) {
+            return [];
+        }
+        return [
+            {
+                kind: 'capability_echo.external_fetch_added',
+                surface: 'source',
+                severity: testFile ? 'low' : 'medium',
+                file: added.file,
+                line: added.line,
+                subject: 'External network fetch',
+                message: 'Added code performs an external HTTP request that expands network reach.',
+                recommendation: 'Review the endpoint, data sent, and whether the request belongs in this change.'
+            }
+        ];
     }
     const lookahead = nextLines(added, sameFile);
     const hasUrlSameLine = /(?:https?:\/\/|['"]https?:\/\/)/i.test(added.content);
-    if (!hasUrlSameLine && !hasExternalUrlInLines(lookahead)) {
+    if (!hasUrlSameLine && !hasExternalUrlInLines(lookahead) && !hasDynamicNetworkTarget(added.content, lookahead)) {
         return [];
     }
     // Same-origin literal paths (`fetch('/api/x')`) are not external. The other
@@ -147,6 +163,58 @@ function detectFetch(added, testFile, sameFile) {
         }
     ];
 }
+function hasDynamicNetworkTarget(content, lookahead) {
+    const sameLineArg = content.match(JS_NETWORK_ARG_PATTERN)?.[1]?.trim();
+    if (sameLineArg) {
+        return isDynamicNetworkArgument(sameLineArg);
+    }
+    if (!/(?:\bfetch|\baxios\.\w+|\bgot|\bky\.\w+|\bhttps?\.\w+|\bundici\.\w+)\s*\(\s*$/i.test(content)) {
+        return false;
+    }
+    for (const next of lookahead) {
+        const candidate = next.content.trim();
+        if (!candidate) {
+            continue;
+        }
+        return isDynamicNetworkArgument(candidate);
+    }
+    return false;
+}
+function isDynamicNetworkArgument(rawArgument) {
+    const argument = rawArgument.trim();
+    if (!argument) {
+        return false;
+    }
+    if (/^['"`]/.test(argument)) {
+        return false;
+    }
+    if (/^(?:undefined|null|true|false|new\s+URL\b)/i.test(argument)) {
+        return false;
+    }
+    return /^[A-Za-z_$][\w$]*(?:\b|[.[(])/.test(argument);
+}
+function isAddedExternalUrlArgumentUnderExistingNetworkCall(added, sameFile, fullFileContent) {
+    if (!hasExternalUrlInLines([added]) || !fullFileContent) {
+        return false;
+    }
+    const fullLines = fullFileContent.split(/\r?\n/);
+    const addedLineNumbers = new Set(sameFile.map((line) => line.line));
+    for (let offset = 1; offset <= SPLIT_LINE_LOOKAHEAD; offset += 1) {
+        const lineNumber = added.line - offset;
+        if (lineNumber < 1) {
+            break;
+        }
+        const content = fullLines[lineNumber - 1] ?? '';
+        if (isCommentLine(content)) {
+            break;
+        }
+        if (!JS_NETWORK_PATTERN.test(content)) {
+            continue;
+        }
+        return !addedLineNumbers.has(lineNumber) && /\(\s*$/.test(content.trim());
+    }
+    return false;
+}
 function detectSecretExfil(added, testFile, secretVariables, sameFile) {
     if (!isExternalHttpRequest(added, sameFile)) {
         return [];
@@ -172,7 +240,7 @@ function detectSecretExfil(added, testFile, secretVariables, sameFile) {
     ];
 }
 function isExternalHttpRequest(added, sameFile) {
-    const isCallLine = /(?:\bfetch\s*\(|\baxios\.(?:get|post|put|delete|patch|head|options|request)\s*\(|\bgot\s*\(|\bky\.(?:get|post|put|delete|patch|head)\s*\(|\bhttps?\.(?:get|request)\s*\(|\bundici\.(?:request|fetch|stream|pipeline)\s*\()/i.test(added.content);
+    const isCallLine = JS_NETWORK_PATTERN.test(added.content);
     if (!isCallLine) {
         return false;
     }
@@ -180,7 +248,8 @@ function isExternalHttpRequest(added, sameFile) {
         return true;
     }
     // Split-line: URL is on a following added line.
-    return hasExternalUrlInLines(nextLines(added, sameFile));
+    const lookahead = nextLines(added, sameFile);
+    return hasExternalUrlInLines(lookahead) || hasDynamicNetworkTarget(added.content, lookahead);
 }
 function referencesEnvSecret(content) {
     return /\bprocess\.env(?:\.[A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*\b|\[\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"]\s*\])/i.test(content);

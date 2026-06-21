@@ -16,6 +16,7 @@ export async function mainAction(env: NodeJS.ProcessEnv = process.env): Promise<
   const maxFindings = parseNonNegativeInt(getInput(env, 'max-findings'), 0);
   const maxOutputBytes = parseNonNegativeInt(getInput(env, 'max-output-bytes'), 0);
   const reportFile = getInput(env, 'report-file');
+  const exceptionsFile = getInput(env, 'exceptions-file') || undefined;
 
   if (maxFindings === undefined) {
     writeError(`Invalid max-findings value '${getInput(env, 'max-findings')}'. Use a non-negative integer.`);
@@ -39,7 +40,7 @@ export async function mainAction(env: NodeJS.ProcessEnv = process.env): Promise<
 
   let fullReport;
   try {
-    fullReport = await runCapabilityDiff({ mode: 'git', repo, base, head });
+    fullReport = await runCapabilityDiff({ mode: 'git', repo, base, head, exceptionsFile });
   } catch (error) {
     if (error instanceof GitDiffSetupError) {
       writeError(
@@ -73,6 +74,10 @@ export async function mainAction(env: NodeJS.ProcessEnv = process.env): Promise<
     hasFindings: fullReport.findingCount > 0,
     findingCount: fullReport.findingCount,
     changedFileCount: fullReport.changedFileCount,
+    analysisIncomplete: fullReport.analysisIncomplete,
+    analysisDiagnosticCount: fullReport.analysisDiagnosticCount,
+    suppressedFindingCount: fullReport.suppressedFindingCount,
+    expiredExceptionCount: fullReport.expiredExceptionCount,
     surfaceSummary: fullReport.surfaceSummary,
     severitySummary: fullReport.severitySummary,
     capabilitySummary: fullReport.capabilitySummary,
@@ -86,6 +91,11 @@ export async function mainAction(env: NodeJS.ProcessEnv = process.env): Promise<
   await writeOutput(env, 'has-findings', String(fullReport.findingCount > 0));
   await writeOutput(env, 'finding-count', String(fullReport.findingCount));
   await writeOutput(env, 'changed-file-count', String(fullReport.changedFileCount));
+  await writeOutput(env, 'analysis-incomplete', String(fullReport.analysisIncomplete));
+  await writeOutput(env, 'analysis-diagnostic-count', String(fullReport.analysisDiagnosticCount));
+  await writeOutput(env, 'analysis-diagnostics', JSON.stringify(fullReport.analysisDiagnostics));
+  await writeOutput(env, 'suppressed-finding-count', String(fullReport.suppressedFindingCount));
+  await writeOutput(env, 'expired-exception-count', String(fullReport.expiredExceptionCount));
   await writeOutput(env, 'surface-summary', JSON.stringify(fullReport.surfaceSummary));
   await writeOutput(env, 'severity-summary', JSON.stringify(fullReport.severitySummary));
   await writeOutput(env, 'capability-summary', JSON.stringify(fullReport.capabilitySummary));

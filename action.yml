@@ -38,6 +38,11 @@ inputs:
       Optional path (absolute or repo-relative) to write the full markdown report. A sibling `<path>.json` is also written. Truncation never applies to the sidecar files, so pair this with `actions/upload-artifact` to keep a complete record alongside a truncated PR view.
     required: false
     default: ''
+  exceptions-file:
+    description: |
+      Repo-relative JSON exception baseline to apply from the candidate checkout/ref. Defaults to `.capabilityecho-exceptions.json` when present. Entries use the shared agent-gov-core exception shape: kind, optional salientKey/pathPrefix, expires, and reason.
+    required: false
+    default: ''
 
 outputs:
   rating:
@@ -48,6 +53,16 @@ outputs:
     description: Total CapabilityEcho findings in the diff.
   changed-file-count:
     description: Number of changed scannable files in the diff.
+  analysis-incomplete:
+    description: Whether CapabilityEcho skipped any changed input because it could not be safely examined.
+  analysis-diagnostic-count:
+    description: Number of skipped-input or incomplete-analysis diagnostics.
+  analysis-diagnostics:
+    description: JSON array of skipped-input or incomplete-analysis diagnostics.
+  suppressed-finding-count:
+    description: Number of findings hidden by active checked-in exceptions.
+  expired-exception-count:
+    description: Number of findings resurfaced because a matching exception expired.
   surface-summary:
     description: JSON object with finding counts by executable surface.
   severity-summary:

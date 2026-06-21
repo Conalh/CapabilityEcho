@@ -14,11 +14,11 @@ export function detectPyCapability(lines, newFileContents = {}) {
         }
         const testFile = isTestFile(added.file);
         const sameFile = linesByFile.get(added.file) ?? [];
-        findings.push(...detectPyNetwork(added, testFile, sameFile));
+        findings.push(...detectPyNetwork(added, testFile, sameFile, newFileContents[added.file]));
         findings.push(...detectPySecretExfil(added, testFile, secretVarsByFile.get(added.file) ?? new Set(), sameFile));
         findings.push(...detectPySubprocess(added, testFile));
         findings.push(...detectPyDynamicExec(added, testFile));
-        findings.push(...detectPyUnsafeDeserialize(added, testFile));
+        findings.push(...detectPyUnsafeDeserialize(added, testFile, sameFile));
     }
     return findings;
 }
@@ -52,6 +52,7 @@ function nextPyLines(added, sameFile) {
 function hasPyExternalUrl(content) {
     return /(?:https?:\/\/|['"]https?:\/\/)/i.test(content);
 }
+const PY_NETWORK_ARG_PATTERN = /\b(?:(?:requests|httpx)\.(?:get|post|put|delete|patch|head|options|request)|urllib(?:2)?\.(?:request\.)?urlopen|urlopen|urllib\.request\.urlretrieve|aiohttp\.request)\s*\(\s*([^,\)]*)/i;
 function collectSecretVariables(lines, newFileContents) {
     const varsByFile = new Map();
     const aliasesByFile = new Map();
@@ -110,11 +111,12 @@ function addSecretVariable(varsByFile, file, content, aliases) {
     vars.add(match[1]);
     varsByFile.set(file, vars);
 }
-function detectPyNetwork(added, testFile, sameFile) {
+function detectPyNetwork(added, testFile, sameFile, fullFileContent) {
     // Common network entry points across requests, httpx, aiohttp, and the
     // urllib family (including the Python 2 legacy `urllib2` that still
     // appears in older agent-generated code).
-    if (!isPyHighLevelNetwork(added.content) && !isPyLowLevelNetwork(added.content)) {
+    const isContextUrlArgument = isAddedPyUrlArgumentUnderExistingNetworkCall(added, sameFile, fullFileContent);
+    if (!isPyHighLevelNetwork(added.content) && !isPyLowLevelNetwork(added.content) && !isContextUrlArgument) {
         return [];
     }
     // High-level libraries take URLs as arguments — gate on a literal external
@@ -124,7 +126,10 @@ function detectPyNetwork(added, testFile, sameFile) {
     // strings or AF_INET pairs and do not always carry a URL, so we don't
     // require one for those.
     if (isPyHighLevelNetwork(added.content)) {
-        if (!hasPyExternalUrl(added.content) && !nextPyLines(added, sameFile).some((line) => hasPyExternalUrl(line.content))) {
+        const lookahead = nextPyLines(added, sameFile);
+        if (!hasPyExternalUrl(added.content) &&
+            !lookahead.some((line) => hasPyExternalUrl(line.content)) &&
+            !hasPyDynamicNetworkTarget(added.content, lookahead)) {
             return [];
         }
     }
@@ -181,7 +186,8 @@ function isPyExternalRequest(added, sameFile) {
     if (hasPyExternalUrl(added.content)) {
         return true;
     }
-    return nextPyLines(added, sameFile).some((line) => hasPyExternalUrl(line.content));
+    const lookahead = nextPyLines(added, sameFile);
+    return lookahead.some((line) => hasPyExternalUrl(line.content)) || hasPyDynamicNetworkTarget(added.content, lookahead);
 }
 function referencesPyEnvSecret(content) {
     return (/\b(?:os\.)?environ\s*(?:\[\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"]\s*\]|\.get\s*\(\s*['"][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*['"])/i.test(content) ||
@@ -214,11 +220,10 @@ function detectPySubprocess(added, testFile) {
     ];
 }
 function detectPyDynamicExec(added, testFile) {
-    // Dynamic code execution. We also catch `__import__` and
-    // `importlib.import_module` with a string literal argument — these are
-    // the standard primitives for "load whatever the LLM names next."
-    const dynamicPattern = /\beval\s*\(|\bexec\s*\(|\bcompile\s*\(|\b__import__\s*\(|\bimportlib\.import_module\s*\(/i;
-    if (!dynamicPattern.test(added.content)) {
+    // Dynamic code execution and nonliteral import-by-name primitives.
+    const dynamicPattern = /\beval\s*\(|\bexec\s*\(|\bcompile\s*\(|\b__import__\s*\(/i;
+    const hasDynamicImportModule = /\bimportlib\.import_module\s*\(/i.test(added.content) && !hasLiteralImportModuleArg(added.content);
+    if (!dynamicPattern.test(added.content) && !hasDynamicImportModule) {
         return [];
     }
     return [
@@ -234,12 +239,70 @@ function detectPyDynamicExec(added, testFile) {
         }
     ];
 }
-function detectPyUnsafeDeserialize(added, testFile) {
+function hasPyDynamicNetworkTarget(content, lookahead) {
+    const sameLineArg = content.match(PY_NETWORK_ARG_PATTERN)?.[1]?.trim();
+    if (sameLineArg) {
+        return isDynamicPyNetworkArgument(sameLineArg);
+    }
+    if (!/\b(?:(?:requests|httpx)\.\w+|urllib(?:2)?\.(?:request\.)?urlopen|urlopen|urllib\.request\.urlretrieve|aiohttp\.request)\s*\(\s*$/i.test(content)) {
+        return false;
+    }
+    for (const next of lookahead) {
+        const candidate = next.content.trim();
+        if (!candidate) {
+            continue;
+        }
+        return isDynamicPyNetworkArgument(candidate);
+    }
+    return false;
+}
+function isDynamicPyNetworkArgument(rawArgument) {
+    const argument = rawArgument.trim();
+    if (!argument) {
+        return false;
+    }
+    if (/^['"]/.test(argument)) {
+        return false;
+    }
+    if (/^(?:None|True|False)\b/.test(argument)) {
+        return false;
+    }
+    return /^[A-Za-z_][\w]*(?:\b|[.[(])/.test(argument);
+}
+function isAddedPyUrlArgumentUnderExistingNetworkCall(added, sameFile, fullFileContent) {
+    if (!hasPyExternalUrl(added.content) || !fullFileContent) {
+        return false;
+    }
+    const fullLines = fullFileContent.split(/\r?\n/);
+    const addedLineNumbers = new Set(sameFile.map((line) => line.line));
+    for (let offset = 1; offset <= PY_SPLIT_LINE_LOOKAHEAD; offset += 1) {
+        const lineNumber = added.line - offset;
+        if (lineNumber < 1) {
+            break;
+        }
+        const content = fullLines[lineNumber - 1] ?? '';
+        if (isCommentLine(content)) {
+            break;
+        }
+        if (!isPyHighLevelNetwork(content)) {
+            continue;
+        }
+        return !addedLineNumbers.has(lineNumber) && /\(\s*$/.test(content.trim());
+    }
+    return false;
+}
+function hasLiteralImportModuleArg(content) {
+    return /\bimportlib\.import_module\s*\(\s*(['"])(?:\\.|(?!\1).)+\1\s*(?:,|\))/i.test(content);
+}
+function detectPyUnsafeDeserialize(added, testFile, sameFile) {
     // pickle.load and marshal.load on attacker-controlled bytes are a
     // remote-code-execution primitive. yaml.load (without SafeLoader) is
     // the same shape and is the most common real-world footgun.
-    const unsafeDeserializePattern = /\bpickle\.(?:load|loads)\s*\(|\bmarshal\.(?:load|loads)\s*\(|\byaml\.load\s*\((?![^)]*Loader\s*=\s*(?:yaml\.)?SafeLoader)/i;
-    if (!unsafeDeserializePattern.test(added.content)) {
+    const unsafeBinaryPattern = /\bpickle\.(?:load|loads)\s*\(|\bmarshal\.(?:load|loads)\s*\(/i;
+    const yamlLoadPattern = /\byaml\.load\s*\(/i;
+    const chunk = [added, ...nextPyLines(added, sameFile)].map((line) => line.content).join('\n');
+    const unsafeYamlLoad = yamlLoadPattern.test(added.content) && !/Loader\s*=\s*(?:yaml\.)?SafeLoader/i.test(chunk);
+    if (!unsafeBinaryPattern.test(added.content) && !unsafeYamlLoad) {
         return [];
     }
     return [

@@ -1,4 +1,4 @@
-import { isCommentLine, isWorkflowFile } from '../paths.js';
+import { isCommentLine, isWorkflowFile, isWorkflowLikeFile } from '../paths.js';
 const githubTokenWritePermissionPattern = /^\s*(?:actions|artifact-metadata|attestations|checks|code-quality|contents|deployments|discussions|id-token|issues|packages|pages|pull-requests|security-events|statuses)\s*:\s*write\b/i;
 export function detectWorkflowPermissions(lines, newFileContents = {}) {
     const findings = [];
@@ -10,12 +10,14 @@ export function detectWorkflowPermissions(lines, newFileContents = {}) {
         }
     }
     for (const added of lines) {
-        if (!isWorkflowFile(added.file) || isCommentLine(added.content)) {
+        if (!isWorkflowLikeFile(added.file) || isCommentLine(added.content)) {
             continue;
         }
-        findings.push(...detectPullRequestTarget(added));
-        findings.push(...detectPullRequestHeadCheckoutOnTarget(added, pullRequestTargetFiles.has(added.file)));
-        findings.push(...detectSelfHostedRunner(added));
+        if (isWorkflowFile(added.file)) {
+            findings.push(...detectPullRequestTarget(added));
+            findings.push(...detectPullRequestHeadCheckoutOnTarget(added, pullRequestTargetFiles.has(added.file)));
+            findings.push(...detectSelfHostedRunner(added));
+        }
         findings.push(...detectMutableActionRef(added));
         findings.push(...detectWritePermissions(added));
         findings.push(...detectExternalCurl(added));
@@ -28,13 +30,13 @@ export function detectWorkflowPermissions(lines, newFileContents = {}) {
 function collectSecretEnvVars(lines, newFileContents) {
     const varsByFile = new Map();
     for (const added of lines) {
-        if (!isWorkflowFile(added.file)) {
+        if (!isWorkflowLikeFile(added.file)) {
             continue;
         }
         addSecretEnvVar(varsByFile, added.file, added.content);
     }
     for (const [file, content] of Object.entries(newFileContents)) {
-        if (!isWorkflowFile(file)) {
+        if (!isWorkflowLikeFile(file)) {
             continue;
         }
         for (const line of content.split(/\r?\n/)) {
@@ -186,7 +188,7 @@ function isLocalActionRef(actionRef) {
     return actionRef.startsWith('./') || actionRef.startsWith('../') || actionRef.startsWith('/');
 }
 function isMutableActionVersionRef(versionRef) {
-    return /^(main|master|trunk|develop|dev|latest|head)$/i.test(versionRef);
+    return !/^[0-9a-f]{40}$/i.test(versionRef);
 }
 function detectExternalCurl(added) {
     if (!/\b(curl|wget|Invoke-WebRequest|fetch\s*\()/i.test(added.content)) {
