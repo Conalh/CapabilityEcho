@@ -198,11 +198,37 @@ test('py: aliased environ via "import as" tracked as a secret variable across li
   assert.equal(exfil.line, 6);
 });
 
-test('py: requests.get without literal URL does not over-fire', () => {
+test('py: requests.get with added dynamic URL variable flags external fetch', () => {
   const findings = detectPyCapability([
     line('agent.py', 'resp = requests.get(url, headers=h)')
   ]);
+  assert.ok(findings.find((f) => f.kind === 'capability_echo.external_fetch_added'));
+});
+
+test('py: requests.get with relative literal URL stays quiet', () => {
+  const findings = detectPyCapability([
+    line('agent.py', 'resp = requests.get("/internal/events")')
+  ]);
   assert.equal(findings.find((f) => f.kind === 'capability_echo.external_fetch_added'), undefined);
+});
+
+test('py: added URL argument under unchanged requests call is flagged', () => {
+  const content = [
+    'def sync():',
+    '    return requests.get(',
+    '        "https://api.example.com/v1/things",',
+    '    )'
+  ].join('\n');
+  const findings = detectPyCapability(
+    [
+      line('agent.py', '        "https://api.example.com/v1/things",', 3)
+    ],
+    { 'agent.py': content }
+  );
+
+  const finding = findings.find((f) => f.kind === 'capability_echo.external_fetch_added');
+  assert.ok(finding);
+  assert.equal(finding.line, 3);
 });
 
 test('py: urllib.request.urlopen counts as external fetch', () => {
@@ -244,6 +270,13 @@ test('py: importlib.import_module flags as dynamic exec', () => {
   assert.ok(findings.find((f) => f.kind === 'capability_echo.dynamic_eval_added'));
 });
 
+test('py: importlib.import_module with a string literal is treated as static import', () => {
+  const findings = detectPyCapability([
+    line('agent.py', 'mod = importlib.import_module("known_module")')
+  ]);
+  assert.equal(findings.find((f) => f.kind === 'capability_echo.dynamic_eval_added'), undefined);
+});
+
 test('py: pickle.loads flags as unsafe deserialize', () => {
   const findings = detectPyCapability([
     line('agent.py', 'obj = pickle.loads(payload)')
@@ -265,6 +298,17 @@ test('py: yaml.load without SafeLoader flags; yaml.safe_load does not', () => {
   assert.equal(safe.find((f) => f.kind === 'capability_echo.unsafe_deserialize_added'), undefined);
 });
 
+test('py: multiline yaml.load with SafeLoader is not unsafe deserialize', () => {
+  const findings = detectPyCapability([
+    line('agent.py', 'config = yaml.load(', 7),
+    line('agent.py', '    open("config.yml"),', 8),
+    line('agent.py', '    Loader=yaml.SafeLoader,', 9),
+    line('agent.py', ')', 10)
+  ]);
+
+  assert.equal(findings.find((f) => f.kind === 'capability_echo.unsafe_deserialize_added'), undefined);
+});
+
 test('py: comment lines are ignored', () => {
   const findings = detectPyCapability([
     line('agent.py', '# requests.get("https://example.com")')
@@ -275,6 +319,15 @@ test('py: comment lines are ignored', () => {
 test('py: test file downgrades severity', () => {
   const findings = detectPyCapability([
     line('tests/test_agent.py', 'subprocess.Popen(["echo", "test"])')
+  ]);
+  const f = findings.find((finding) => finding.kind === 'capability_echo.subprocess_spawn_added');
+  assert.ok(f);
+  assert.equal(f.severity, 'low');
+});
+
+test('py: root tests directory downgrades severity', () => {
+  const findings = detectPyCapability([
+    line('tests/helpers.py', 'subprocess.Popen(["echo", "test"])')
   ]);
   const f = findings.find((finding) => finding.kind === 'capability_echo.subprocess_spawn_added');
   assert.ok(f);

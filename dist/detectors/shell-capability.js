@@ -1,8 +1,8 @@
-import { isCommentLine, isShellFile } from '../paths.js';
-export function detectShellCapability(lines) {
+import { hasShellShebang, isCommentLine, isShellFile } from '../paths.js';
+export function detectShellCapability(lines, newFileContents = {}) {
     const findings = [];
     for (const added of lines) {
-        if (!isShellFile(added.file) || isCommentLine(added.content)) {
+        if (!isShellScannableFile(added.file, newFileContents) || isCommentLine(added.content)) {
             continue;
         }
         findings.push(...detectPipeToShell(added));
@@ -10,8 +10,11 @@ export function detectShellCapability(lines) {
     }
     return findings;
 }
+function isShellScannableFile(file, newFileContents) {
+    return isShellFile(file) || hasShellShebang(newFileContents[file]);
+}
 function detectPipeToShell(added) {
-    if (!/(?:curl|wget|Invoke-WebRequest|iwr)[^\n|]*https?:\/\/[^\n|]*\|\s*(?:ba)?sh\b|iex\s*\(|Invoke-Expression/i.test(added.content)) {
+    if (!hasRemotePipeToShell(added.content)) {
         return [];
     }
     return [
@@ -26,6 +29,11 @@ function detectPipeToShell(added) {
             recommendation: 'Replace remote pipe-to-shell with pinned, reviewable install steps.'
         }
     ];
+}
+function hasRemotePipeToShell(content) {
+    return (/\b(?:curl|wget)\b[^\n|]*https?:\/\/[^\n|]*\|\s*(?:ba)?sh\b/i.test(content) ||
+        /\b(?:Invoke-WebRequest|iwr|curl|wget)\b[^\n|]*https?:\/\/[^\n|]*\|\s*(?:iex|Invoke-Expression)\b/i.test(content) ||
+        /\b(?:iex|Invoke-Expression)\s*(?:\(|\s+)\s*(?:Invoke-WebRequest|iwr|curl|wget)\b[^)]*https?:\/\//i.test(content));
 }
 function detectExternalDownload(added) {
     if (!/\b(curl|wget|Invoke-WebRequest|iwr)\b[^\n]*https?:\/\//i.test(added.content)) {

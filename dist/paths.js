@@ -34,7 +34,7 @@ export function surfaceForPath(relativePath) {
     if (isPythonManifestFile(normalized)) {
         return 'package';
     }
-    if (normalized.startsWith('.github/workflows/') && /\.(ya?ml)$/i.test(normalized)) {
+    if (isWorkflowLikeFile(normalized)) {
         return 'workflow';
     }
     if (isDockerfile(normalized)) {
@@ -47,13 +47,13 @@ export function surfaceForPath(relativePath) {
 }
 export function isTestFile(relativePath) {
     const normalized = normalizeRelativePath(relativePath);
-    if (normalized.includes('__tests__/') || normalized.includes('/tests/')) {
+    if (normalized.includes('__tests__/') || normalized.startsWith('tests/') || normalized.includes('/tests/')) {
         return true;
     }
     if (/(^|\/)test_[^/]+\.py$/i.test(normalized) || /_test\.py$/i.test(normalized)) {
         return true;
     }
-    return /\.(test|spec)\.(js|jsx|ts|tsx|mjs|cjs)$/i.test(normalized);
+    return /\.(test|spec)\.(js|jsx|ts|tsx|mjs|cjs|mts|cts)$/i.test(normalized);
 }
 export function isCommentLine(content) {
     const trimmed = content.trim();
@@ -66,6 +66,13 @@ export function isCommentLine(content) {
 export function isWorkflowFile(relativePath) {
     const normalized = normalizeRelativePath(relativePath);
     return normalized.startsWith('.github/workflows/') && /\.(ya?ml)$/i.test(normalized);
+}
+export function isCompositeActionFile(relativePath) {
+    const normalized = normalizeRelativePath(relativePath);
+    return normalized.startsWith('.github/actions/') && /(^|\/)action\.ya?ml$/i.test(normalized);
+}
+export function isWorkflowLikeFile(relativePath) {
+    return isWorkflowFile(relativePath) || isCompositeActionFile(relativePath);
 }
 export function isPackageJsonFile(relativePath) {
     const normalized = normalizeRelativePath(relativePath);
@@ -91,7 +98,7 @@ export function isPythonManifestFile(relativePath) {
 }
 export function isJsFile(relativePath) {
     const normalized = normalizeRelativePath(relativePath);
-    return /\.(js|jsx|ts|tsx|mjs|cjs)$/i.test(normalized);
+    return /\.(js|jsx|ts|tsx|mjs|cjs|mts|cts)$/i.test(normalized);
 }
 export function isPyFile(relativePath) {
     const normalized = normalizeRelativePath(relativePath);
@@ -101,8 +108,23 @@ export function isShellFile(relativePath) {
     const normalized = normalizeRelativePath(relativePath);
     return /\.(sh|bash|zsh|ps1|psm1)$/i.test(normalized);
 }
+export function isPotentialShebangScript(relativePath) {
+    const normalized = normalizeRelativePath(relativePath);
+    if (isExcluded(normalized)) {
+        return false;
+    }
+    const name = normalized.split('/').pop() ?? normalized;
+    return name.length > 0 && !name.includes('.');
+}
+export function hasShellShebang(content) {
+    if (!content) {
+        return false;
+    }
+    const firstLine = content.split(/\r?\n/, 1)[0] ?? '';
+    return /^#!.*\b(?:bash|sh|zsh|fish|pwsh|powershell)\b/i.test(firstLine);
+}
 export function isDockerfile(relativePath) {
     const normalized = normalizeRelativePath(relativePath);
     const name = normalized.split('/').pop() ?? normalized;
-    return /^Dockerfile(?:\..+)?$/i.test(name);
+    return /^(?:Dockerfile|Containerfile)(?:\..+)?$/i.test(name);
 }

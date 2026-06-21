@@ -11,11 +11,14 @@ test('dockerfile: Dockerfiles are scannable container surfaces', () => {
   assert.equal(isScannable('Dockerfile'), true);
   assert.equal(surfaceForPath('Dockerfile'), 'container');
   assert.equal(surfaceForPath('docker/Dockerfile.release'), 'container');
+  assert.equal(isScannable('Containerfile'), true);
+  assert.equal(surfaceForPath('Containerfile'), 'container');
+  assert.equal(surfaceForPath('docker/Containerfile.release'), 'container');
 });
 
 test('dockerfile: remote ADD is high capability drift', () => {
   const findings = detectDockerfileCapability([
-    line('Dockerfile', 'ADD https://install.example.com/agent /usr/local/bin/agent')
+    line('Containerfile', 'ADD https://install.example.com/agent /usr/local/bin/agent')
   ]);
 
   const finding = findings.find((item) => item.kind === 'capability_echo.dockerfile_remote_add');

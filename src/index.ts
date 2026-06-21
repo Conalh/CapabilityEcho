@@ -27,8 +27,19 @@ async function runDiffCommand(argv: string[]): Promise<number> {
 
   const report =
     parsed.mode === 'directories'
-      ? await runCapabilityDiff({ mode: 'directories', oldRoot: parsed.oldRoot, newRoot: parsed.newRoot })
-      : await runCapabilityDiff({ mode: 'git', repo: parsed.repo, base: parsed.base, head: parsed.head });
+      ? await runCapabilityDiff({
+          mode: 'directories',
+          oldRoot: parsed.oldRoot,
+          newRoot: parsed.newRoot,
+          exceptionsFile: parsed.exceptionsFile
+        })
+      : await runCapabilityDiff({
+          mode: 'git',
+          repo: parsed.repo,
+          base: parsed.base,
+          head: parsed.head,
+          exceptionsFile: parsed.exceptionsFile
+        });
 
   process.stdout.write(renderReport(report, parsed.format));
 
@@ -43,8 +54,8 @@ async function runDiffCommand(argv: string[]): Promise<number> {
 }
 
 type ParsedDiffArgs =
-  | { ok: true; mode: 'directories'; oldRoot: string; newRoot: string; format: ReportFormat; failOn: EchoRating }
-  | { ok: true; mode: 'git'; repo: string; base: string; head: string; format: ReportFormat; failOn: EchoRating }
+  | { ok: true; mode: 'directories'; oldRoot: string; newRoot: string; format: ReportFormat; failOn: EchoRating; exceptionsFile?: string }
+  | { ok: true; mode: 'git'; repo: string; base: string; head: string; format: ReportFormat; failOn: EchoRating; exceptionsFile?: string }
   | { ok: false; error: string };
 
 function parseDiffArgs(argv: string[]): ParsedDiffArgs {
@@ -55,6 +66,7 @@ function parseDiffArgs(argv: string[]): ParsedDiffArgs {
   let repo = process.cwd();
   let format: ReportFormat = 'text';
   let failOn: EchoRating = 'none';
+  let exceptionsFile: string | undefined;
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -74,6 +86,12 @@ function parseDiffArgs(argv: string[]): ParsedDiffArgs {
       index += 1;
     } else if (arg === '--head') {
       head = value;
+      index += 1;
+    } else if (arg === '--exceptions') {
+      if (!value) {
+        return { ok: false, error: 'Missing required --exceptions <path> argument.' };
+      }
+      exceptionsFile = value;
       index += 1;
     } else if (arg === '--format') {
       if (!isReportFormat(value)) {
@@ -109,7 +127,7 @@ function parseDiffArgs(argv: string[]): ParsedDiffArgs {
       return { ok: false, error: 'Missing required --head <ref> argument.' };
     }
 
-    return { ok: true, mode: 'git', repo, base, head, format, failOn };
+    return { ok: true, mode: 'git', repo, base, head, format, failOn, exceptionsFile };
   }
 
   if (!oldRoot) {
@@ -120,7 +138,7 @@ function parseDiffArgs(argv: string[]): ParsedDiffArgs {
     return { ok: false, error: 'Missing required --new <dir> argument.' };
   }
 
-  return { ok: true, mode: 'directories', oldRoot, newRoot, format, failOn };
+  return { ok: true, mode: 'directories', oldRoot, newRoot, format, failOn, exceptionsFile };
 }
 
 function isReportFormat(value: string | undefined): value is ReportFormat {
@@ -140,7 +158,7 @@ if (invokedPath) {
 function usage(): string {
   return [
     'Usage:',
-    '  capabilityecho diff --old <dir> --new <dir> [--format text|markdown|json|github] [--fail-on none|low|medium|high|critical]',
-    '  capabilityecho diff --repo <repo> --base <ref> --head <ref> [--format text|markdown|json|github] [--fail-on none|low|medium|high|critical]'
+    '  capabilityecho diff --old <dir> --new <dir> [--exceptions <path>] [--format text|markdown|json|github] [--fail-on none|low|medium|high|critical]',
+    '  capabilityecho diff --repo <repo> --base <ref> --head <ref> [--exceptions <path>] [--format text|markdown|json|github] [--fail-on none|low|medium|high|critical]'
   ].join('\n');
 }

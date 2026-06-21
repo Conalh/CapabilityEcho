@@ -4,10 +4,16 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { makeOldNewFixture } from 'agent-gov-core/test-utils';
 
 const execFileAsync = promisify(execFile);
 const testDir = dirname(fileURLToPath(import.meta.url));
 const packageRoot = join(testDir, '..');
+
+async function makeFixture(oldFiles, newFiles) {
+  const fx = await makeOldNewFixture({ old: oldFiles, new: newFiles });
+  return { oldRoot: fx.old, newRoot: fx.new, cleanup: fx.cleanup };
+}
 
 test('CLI emits JSON capability drift report', async () => {
   const oldDir = join(testDir, 'fixtures', 'capability-drift', 'old');
@@ -184,4 +190,121 @@ test('CLI rejects unknown --fail-on value', async () => {
 
   assert.equal(result.code, 2);
   assert.match(result.stderr, /Invalid --fail-on value/);
+});
+
+test('CLI applies active checked-in exceptions before fail-on', async () => {
+  const fixture = await makeFixture(
+    {
+      'src/client.ts': 'export function ok() {\n  return true;\n}\n'
+    },
+    {
+      'src/client.ts': "export async function sync() {\n  await fetch('https://api.example.com/v1/events');\n}\n",
+      '.capabilityecho-exceptions.json': `${JSON.stringify({
+        exceptions: [
+          {
+            kind: 'capability_echo.external_fetch_added',
+            pathPrefix: 'src/',
+            expires: '2099-01-01',
+            reason: 'approved external API migration'
+          }
+        ]
+      }, null, 2)}\n`
+    }
+  );
+
+  try {
+    const result = await execFileAsync(
+      process.execPath,
+      ['dist/index.js', 'diff', '--old', fixture.oldRoot, '--new', fixture.newRoot, '--format', 'json', '--fail-on', 'medium'],
+      { cwd: packageRoot }
+    );
+    const report = JSON.parse(result.stdout);
+
+    assert.equal(report.rating, 'none');
+    assert.equal(report.findings.length, 0);
+    assert.equal(report.data.suppressedFindingCount, 1);
+    assert.equal(report.data.expiredExceptionCount, 0);
+    assert.equal(report.data.analysisIncomplete, false);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test('CLI surfaces expired exceptions as low-severity findings with reason metadata', async () => {
+  const fixture = await makeFixture(
+    {
+      'src/client.ts': 'export function ok() {\n  return true;\n}\n'
+    },
+    {
+      'src/client.ts': "export async function sync() {\n  await fetch('https://api.example.com/v1/events');\n}\n",
+      '.capabilityecho-exceptions.json': `${JSON.stringify({
+        exceptions: [
+          {
+            kind: 'capability_echo.external_fetch_added',
+            pathPrefix: 'src/',
+            expires: '2000-01-01',
+            reason: 'temporary rollout exception'
+          }
+        ]
+      }, null, 2)}\n`
+    }
+  );
+
+  try {
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      ['dist/index.js', 'diff', '--old', fixture.oldRoot, '--new', fixture.newRoot, '--format', 'json', '--fail-on', 'medium'],
+      { cwd: packageRoot }
+    );
+    const report = JSON.parse(stdout);
+
+    assert.equal(report.rating, 'low');
+    assert.equal(report.findings.length, 1);
+    assert.equal(report.findings[0].severity, 'low');
+    assert.match(report.findings[0].message, /^\[EXPIRED WHITELIST\]/);
+    assert.equal(report.findings[0].data.exceptionReason, 'temporary rollout exception');
+    assert.equal(report.data.suppressedFindingCount, 0);
+    assert.equal(report.data.expiredExceptionCount, 1);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test('CLI keeps findings visible when exception config is invalid', async () => {
+  const fixture = await makeFixture(
+    {
+      'src/client.ts': 'export function ok() {\n  return true;\n}\n'
+    },
+    {
+      'src/client.ts': "export async function sync() {\n  await fetch('https://api.example.com/v1/events');\n}\n",
+      '.capabilityecho-exceptions.json': `${JSON.stringify({
+        exceptions: [
+          {
+            kind: 'capability_echo.external_fetch_added',
+            pathPrefix: 'src/'
+          }
+        ]
+      }, null, 2)}\n`
+    }
+  );
+
+  try {
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      ['dist/index.js', 'diff', '--old', fixture.oldRoot, '--new', fixture.newRoot, '--format', 'json'],
+      { cwd: packageRoot }
+    );
+    const report = JSON.parse(stdout);
+
+    assert.equal(report.rating, 'medium');
+    assert.equal(report.findings.length, 1);
+    assert.equal(report.data.suppressedFindingCount, 0);
+    assert.equal(report.data.analysisIncomplete, true);
+    assert.ok(
+      report.data.analysisDiagnostics.some((diagnostic) => diagnostic.kind === 'exception_config_error'),
+      `expected exception_config_error diagnostic, got ${JSON.stringify(report.data.analysisDiagnostics)}`
+    );
+  } finally {
+    await fixture.cleanup();
+  }
 });

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { detectJsCapability } from '../dist/detectors/js-capability.js';
 import { detectWorkflowPermissions } from '../dist/detectors/workflow-permissions.js';
+import { surfaceForPath } from '../dist/paths.js';
 import { createReport } from '../dist/report.js';
 
 test('js detector flags external fetch', () => {
@@ -15,6 +16,69 @@ test('js detector flags external fetch', () => {
 
   assert.equal(findings.length, 1);
   assert.equal(findings[0].kind, 'capability_echo.external_fetch_added');
+});
+
+test('js detector scans modern TypeScript module extensions', () => {
+  assert.equal(surfaceForPath('src/worker.mts'), 'source');
+  assert.equal(surfaceForPath('src/worker.cts'), 'source');
+
+  const findings = detectJsCapability([
+    {
+      file: 'src/worker.mts',
+      line: 2,
+      content: "  await fetch('https://api.example.com/v1/events');"
+    }
+  ]);
+
+  assert.ok(findings.some((finding) => finding.kind === 'capability_echo.external_fetch_added'));
+});
+
+test('js detector flags dynamic network targets added on the call line', () => {
+  const findings = detectJsCapability([
+    {
+      file: 'src/api.ts',
+      line: 9,
+      content: '  await fetch(endpoint, { method: "POST" });'
+    }
+  ]);
+
+  assert.ok(findings.some((finding) => finding.kind === 'capability_echo.external_fetch_added'));
+});
+
+test('js detector keeps same-origin literal fetch calls quiet', () => {
+  const findings = detectJsCapability([
+    {
+      file: 'src/api.ts',
+      line: 9,
+      content: "  await fetch('/internal/events');"
+    }
+  ]);
+
+  assert.equal(findings.find((finding) => finding.kind === 'capability_echo.external_fetch_added'), undefined);
+});
+
+test('js detector flags added URL argument under an unchanged call line', () => {
+  const content = [
+    'export async function sync() {',
+    '  await fetch(',
+    "    'https://api.example.com/v1/events',",
+    '  );',
+    '}'
+  ].join('\n');
+  const findings = detectJsCapability(
+    [
+      {
+        file: 'src/api.ts',
+        line: 3,
+        content: "    'https://api.example.com/v1/events',"
+      }
+    ],
+    { 'src/api.ts': content }
+  );
+
+  const finding = findings.find((item) => item.kind === 'capability_echo.external_fetch_added');
+  assert.ok(finding);
+  assert.equal(finding.line, 3);
 });
 
 test('js detector flags env secret exfiltration over external fetch', () => {
@@ -130,6 +194,20 @@ test('js detector downgrades test file subprocess findings', () => {
   const findings = detectJsCapability([
     {
       file: 'src/utils/format.test.ts',
+      line: 4,
+      content: 'execSync("npm test");'
+    }
+  ]);
+
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].kind, 'capability_echo.subprocess_spawn_added');
+  assert.equal(findings[0].severity, 'low');
+});
+
+test('js detector downgrades root tests directory subprocess findings', () => {
+  const findings = detectJsCapability([
+    {
+      file: 'tests/helpers.ts',
       line: 4,
       content: 'execSync("npm test");'
     }
@@ -316,6 +394,21 @@ test('workflow detector flags external curl with a literal URL', () => {
       file: '.github/workflows/ci.yml',
       line: 12,
       content: '      - run: curl https://example.com/bootstrap.sh'
+    }
+  ]);
+
+  assert.ok(findings.some((finding) => finding.kind === 'capability_echo.workflow_external_curl'));
+});
+
+test('workflow detector scans composite action run steps', () => {
+  assert.equal(surfaceForPath('.github/actions/setup/action.yml'), 'workflow');
+  assert.equal(surfaceForPath('.github/actions/setup/action.yaml'), 'workflow');
+
+  const findings = detectWorkflowPermissions([
+    {
+      file: '.github/actions/setup/action.yml',
+      line: 8,
+      content: '    run: curl https://example.com/bootstrap.sh'
     }
   ]);
 
@@ -609,6 +702,20 @@ test('workflow detector flags mutable third-party action refs', () => {
   assert.match(findings[0].recommendation, /commit SHA/);
 });
 
+test('workflow detector flags semantic-version action refs as mutable', () => {
+  const findings = detectWorkflowPermissions([
+    {
+      file: '.github/workflows/agent.yml',
+      line: 18,
+      content: '      - uses: actions/checkout@v6'
+    }
+  ]);
+
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].kind, 'capability_echo.workflow_mutable_action_ref');
+  assert.match(findings[0].recommendation, /commit SHA/);
+});
+
 test('workflow detector ignores local and commit-pinned action refs', () => {
   const findings = detectWorkflowPermissions([
     {
@@ -674,7 +781,10 @@ test('report summarizes mutable workflow action refs with a human label', () => 
     ],
     {
       changedFileCount: 1,
-      scannedSurfaces: ['workflow']
+      scannedSurfaces: ['workflow'],
+      newFileContents: {},
+      analysisIncomplete: false,
+      analysisDiagnostics: []
     }
   );
 

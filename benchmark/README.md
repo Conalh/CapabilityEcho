@@ -19,9 +19,9 @@ See [RESULTS.md](RESULTS.md) (regenerated on every run). Headline:
 | Metric | Value |
 | --- | --- |
 | Cases | 34 (20 rogue, 14 benign) |
-| Detection recall (any finding) | 100.0% |
-| False-positive rate (benign flagged) | 0.0% |
-| Precision | 100.0% |
+| Detection recall on this committed corpus (any finding) | 100.0% |
+| False-positive rate on this committed benign corpus | 0.0% |
+| Precision on this committed corpus | 100.0% |
 | Recall at `--fail-on=high` CI gate | 85.0% |
 | Correct primary capability identified | 20/20 |
 
@@ -73,6 +73,12 @@ canonical report's `rating` and `findings[].kind`.
 - **Capability identification:** for rogue cases the runner also checks whether
   the expected `kind`(s) appear, so a finding for the *wrong* reason doesn't
   count as a clean hit.
+- **Regression gates:** the command exits nonzero if a rogue fixture is missed,
+  a benign fixture is flagged, an expected kind or minimum severity is lost, the
+  default corpus count drifts, or a runtime probe fails.
+- **Runtime probes:** after the directory-mode corpus, the runner also checks a
+  git-mode hostile-filename case and executes the actual bundled Action
+  entrypoint at `dist/action-bundle/index.js`.
 
 ### Reading the threshold table
 
@@ -89,6 +95,7 @@ is still detected (a finding is emitted) — the gate only decides what fails CI
 npm run benchmark          # builds dist/, runs all fixtures, writes RESULTS.md
 # or, if dist/ is already built:
 node benchmark/run-benchmark.mjs
+node benchmark/build-fixtures.mjs --check   # verify fixtures match generator
 ```
 
 ## Adding or changing cases

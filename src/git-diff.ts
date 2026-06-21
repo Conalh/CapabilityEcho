@@ -1,13 +1,18 @@
 import { execFile } from 'node:child_process';
-import { readdir, readFile, stat } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { relative } from 'node:path';
 import { promisify } from 'node:util';
-import { isValidGitRef, resolveWithinRoot, withinByteCap } from 'agent-gov-core';
-import { isScannable, surfaceForPath } from './paths.js';
-import type { AddedLine, DiffContext, FindingSurface } from './types.js';
+import { isValidGitRef, resolveWithinRoot } from 'agent-gov-core';
+import { listSafeFiles, readTextWithinRoot } from './discovery.js';
+import { hasShellShebang, isPackageJsonFile, isPotentialShebangScript, isScannable, surfaceForPath } from './paths.js';
+import type { AddedLine, AnalysisDiagnostic, DiffContext, FindingSurface } from './types.js';
 
 const execFileAsync = promisify(execFile);
 const SURFACE_ORDER: FindingSurface[] = ['source', 'package', 'workflow', 'container'];
+const GIT_DIFF_MAX_BUFFER = 20 * 1024 * 1024;
+const GIT_SHOW_MAX_BUFFER = 10 * 1024 * 1024;
+const GIT_COMMAND_TIMEOUT_MS = 30_000;
+const GIT_SHOW_CONCURRENCY = 8;
+const MAX_GIT_CHANGED_FILES = 10_000;
 
 export class GitDiffSetupError extends Error {
   constructor(
@@ -21,7 +26,9 @@ export class GitDiffSetupError extends Error {
 }
 
 export async function collectDirectoryDiff(oldRoot: string, newRoot: string): Promise<DiffContext> {
-  const changedFiles = await listScannableFiles(newRoot);
+  const discovery = await listSafeFiles(newRoot, { includeFile: isScannableOrPotentialShebangScript });
+  const changedFiles = discovery.files;
+  const diagnostics: AnalysisDiagnostic[] = [...discovery.diagnostics];
   const addedLines: AddedLine[] = [];
   const changedScannableFiles = new Set<string>();
   const newFileContents: Record<string, string> = {};
@@ -30,13 +37,30 @@ export async function collectDirectoryDiff(oldRoot: string, newRoot: string): Pr
     const oldPath = resolveWithinRoot(oldRoot, file);
     const newPath = resolveWithinRoot(newRoot, file);
     if (oldPath === null || newPath === null) {
-      // listScannableFiles only yields paths it walked itself, so a null
-      // here means a crafted entry tried to escape the root — skip it
-      // rather than read outside the scanned tree.
+      diagnostics.push({
+        kind: 'skipped_path_escape',
+        file,
+        message: `Skipped ${file}: resolved path escapes the scan root.`
+      });
       continue;
     }
-    const newContent = await readFile(newPath, 'utf8');
-    const patch = await runGitNoIndexDiff(oldPath, newPath);
+    const newRead = await readTextWithinRoot(newRoot, file);
+    if (newRead.diagnostic) {
+      diagnostics.push(newRead.diagnostic);
+      continue;
+    }
+
+    const oldRead = await readTextWithinRoot(oldRoot, file);
+    if (oldRead.diagnostic) {
+      diagnostics.push(oldRead.diagnostic);
+    }
+
+    const newContent = newRead.text;
+    if (!isScannable(file) && !hasShellShebang(newContent)) {
+      continue;
+    }
+
+    const patch = oldRead.diagnostic ? '' : await runGitNoIndexDiff(oldPath, newPath);
     if (patch.trim()) {
       changedScannableFiles.add(file);
       newFileContents[file] = newContent;
@@ -44,20 +68,13 @@ export async function collectDirectoryDiff(oldRoot: string, newRoot: string): Pr
       continue;
     }
 
-    let oldContent = '';
-    try {
-      oldContent = await readFile(oldPath, 'utf8');
-    } catch {
-      oldContent = '';
-    }
-
-    if (oldContent === newContent) {
+    if (oldRead.text === newContent) {
       continue;
     }
 
     changedScannableFiles.add(file);
     newFileContents[file] = newContent;
-    if (!oldContent) {
+    if (!oldRead.text) {
       addedLines.push(...allLinesAsAdded(file, newContent));
     }
   }
@@ -65,8 +82,10 @@ export async function collectDirectoryDiff(oldRoot: string, newRoot: string): Pr
   return {
     addedLines,
     changedFileCount: changedScannableFiles.size,
-    scannedSurfaces: surfacesForFiles([...changedScannableFiles]),
-    newFileContents
+    scannedSurfaces: surfacesForFiles([...changedScannableFiles], newFileContents),
+    newFileContents,
+    analysisIncomplete: diagnostics.length > 0,
+    analysisDiagnostics: diagnostics
   };
 }
 
@@ -81,18 +100,35 @@ export async function collectGitDiff(repo: string, base: string, head: string): 
     );
   }
 
-  const changedFiles = await listGitChangedFiles(repo, base, head);
-  const scannableFiles = changedFiles.filter(isScannable);
+  const changedFileDiscovery = await collectGitChangedFiles(repo, base, head);
+  const changedFiles = changedFileDiscovery.files;
+  const diagnostics: AnalysisDiagnostic[] = [...changedFileDiscovery.diagnostics];
+  const pathScannableFiles = changedFiles.filter(isScannable);
+  const shebangCandidates = changedFiles.filter((file) => !isScannable(file) && isPotentialShebangScript(file));
+  const shebangReadResult = await readChangedFilesAtRef(repo, head, shebangCandidates);
+  diagnostics.push(...shebangReadResult.diagnostics);
+  const shebangScannableFiles = Object.entries(shebangReadResult.contents)
+    .filter(([, content]) => hasShellShebang(content))
+    .map(([file]) => file);
+  const scannableFiles = [...new Set([...pathScannableFiles, ...shebangScannableFiles])];
   if (scannableFiles.length === 0) {
-    return { addedLines: [], changedFileCount: 0, scannedSurfaces: [], newFileContents: {} };
+    return {
+      addedLines: [],
+      changedFileCount: 0,
+      scannedSurfaces: [],
+      newFileContents: {},
+      analysisIncomplete: diagnostics.length > 0,
+      analysisDiagnostics: diagnostics
+    };
   }
 
   const { stdout } = await execFileAsync(
     'git',
-    ['-C', repo, 'diff', '-U0', `${base}..${head}`, '--', ...scannableFiles],
-    { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 }
+    ['-C', repo, '-c', 'core.quotePath=false', 'diff', '-U0', `${base}..${head}`, '--', ...scannableFiles],
+    { encoding: 'utf8', maxBuffer: GIT_DIFF_MAX_BUFFER, timeout: GIT_COMMAND_TIMEOUT_MS }
   );
-  const newFileContents = await readChangedFilesAtRef(repo, head, scannableFiles);
+  const readResult = await readChangedFilesAtRef(repo, head, scannableFiles);
+  diagnostics.push(...readResult.diagnostics);
 
   return {
     addedLines: parseUnifiedDiff(stdout).map((line) => ({
@@ -100,8 +136,10 @@ export async function collectGitDiff(repo: string, base: string, head: string): 
       file: normalizeGitDiffPath(line.file)
     })),
     changedFileCount: scannableFiles.length,
-    scannedSurfaces: surfacesForFiles(scannableFiles),
-    newFileContents
+    scannedSurfaces: surfacesForFiles(scannableFiles, readResult.contents),
+    newFileContents: readResult.contents,
+    analysisIncomplete: diagnostics.length > 0,
+    analysisDiagnostics: diagnostics
   };
 }
 
@@ -155,60 +193,44 @@ export function parseUnifiedDiff(patch: string, relativeFile?: string): AddedLin
   return results;
 }
 
-async function listScannableFiles(root: string, current = ''): Promise<string[]> {
-  const entries = await readdir(join(root, current), { withFileTypes: true });
-  const files: string[] = [];
-
-  for (const entry of entries) {
-    if (entry.name === 'node_modules' || entry.name === '.git') {
-      continue;
-    }
-
-    // Never follow symlinks: in directory mode the tree is untrusted, and a
-    // symlinked entry could point outside the scanned root (e.g. /etc/passwd
-    // or a sibling checkout), leaking its contents into finding evidence.
-    if (entry.isSymbolicLink()) {
-      continue;
-    }
-
-    const relativePath = current ? `${current}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) {
-      files.push(...(await listScannableFiles(root, relativePath)));
-      continue;
-    }
-
-    if (isScannable(relativePath)) {
-      // Skip files over the shared 10 MiB input cap so an outsized file
-      // in an untrusted tree can't exhaust memory when read and scanned.
-      const stats = await stat(join(root, relativePath));
-      if (withinByteCap(stats.size)) {
-        files.push(relativePath.replace(/\\/g, '/'));
-      }
-    }
-  }
-
-  return files;
+export async function listGitChangedFiles(repo: string, base: string, head: string): Promise<string[]> {
+  return (await collectGitChangedFiles(repo, base, head)).files;
 }
 
-export async function listGitChangedFiles(repo: string, base: string, head: string): Promise<string[]> {
+async function collectGitChangedFiles(
+  repo: string,
+  base: string,
+  head: string
+): Promise<{ files: string[]; diagnostics: AnalysisDiagnostic[] }> {
   const { stdout } = await execFileAsync(
     'git',
-    ['-C', repo, 'diff', '--name-only', `${base}..${head}`],
-    { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 }
+    ['-C', repo, 'diff', '--name-only', '-z', `${base}..${head}`],
+    { encoding: 'buffer', maxBuffer: GIT_SHOW_MAX_BUFFER, timeout: GIT_COMMAND_TIMEOUT_MS }
   );
-
-  return stdout
-    .split(/\r?\n/)
-    .map((line) => line.trim())
+  const files = stdout
+    .toString('utf8')
+    .split('\0')
     .filter(Boolean)
-    .map((line) => line.replace(/\\/g, '/'));
+    .map((line) => line.replace(/\\/g, '/'))
+    .sort();
+  const diagnostics: AnalysisDiagnostic[] = [];
+
+  if (files.length > MAX_GIT_CHANGED_FILES) {
+    diagnostics.push({
+      kind: 'skipped_file_count_limit',
+      message: `Stopped git changed-file discovery after ${MAX_GIT_CHANGED_FILES} files.`
+    });
+  }
+
+  return { files: files.slice(0, MAX_GIT_CHANGED_FILES), diagnostics };
 }
 
 async function runGitNoIndexDiff(oldPath: string, newPath: string): Promise<string> {
   try {
-    const { stdout } = await execFileAsync('git', ['diff', '--no-index', '-U0', oldPath, newPath], {
+    const { stdout } = await execFileAsync('git', ['-c', 'core.quotePath=false', 'diff', '--no-index', '-U0', oldPath, newPath], {
       encoding: 'utf8',
-      maxBuffer: 10 * 1024 * 1024
+      maxBuffer: GIT_SHOW_MAX_BUFFER,
+      timeout: GIT_COMMAND_TIMEOUT_MS
     });
     return stdout;
   } catch (error) {
@@ -242,7 +264,9 @@ async function gitRefExists(repo: string, ref: string): Promise<boolean> {
     return false;
   }
   try {
-    await execFileAsync('git', ['-C', repo, 'rev-parse', '--verify', `${ref}^{commit}`]);
+    await execFileAsync('git', ['-C', repo, 'rev-parse', '--verify', `${ref}^{commit}`], {
+      timeout: GIT_COMMAND_TIMEOUT_MS
+    });
     return true;
   } catch (error) {
     if (isExecError(error)) {
@@ -253,16 +277,20 @@ async function gitRefExists(repo: string, ref: string): Promise<boolean> {
   }
 }
 
-function surfacesForFiles(files: string[]): FindingSurface[] {
+function surfacesForFiles(files: string[], fileContents: Record<string, string> = {}): FindingSurface[] {
   const surfaces = new Set<FindingSurface>();
   for (const file of files) {
-    const surface = surfaceForPath(file);
+    const surface = surfaceForPath(file) ?? (hasShellShebang(fileContents[file]) ? 'source' : undefined);
     if (surface) {
       surfaces.add(surface);
     }
   }
 
   return SURFACE_ORDER.filter((surface) => surfaces.has(surface));
+}
+
+function isScannableOrPotentialShebangScript(file: string): boolean {
+  return isScannable(file) || isPotentialShebangScript(file);
 }
 
 function isExecError(error: unknown): error is Error & { code?: number | string; stdout?: string } {
@@ -277,65 +305,86 @@ function normalizeGitDiffPath(file: string): string {
 }
 
 export async function readFileAtGitRef(repo: string, ref: string, relativePath: string): Promise<string | null> {
+  const result = await readFileAtGitRefResult(repo, ref, relativePath);
+  return result.content;
+}
+
+async function readFileAtGitRefResult(
+  repo: string,
+  ref: string,
+  relativePath: string
+): Promise<{ content: string | null; diagnostic?: AnalysisDiagnostic }> {
   try {
     const { stdout } = await execFileAsync('git', ['-C', repo, 'show', `${ref}:${relativePath}`], {
       encoding: 'utf8',
-      maxBuffer: 10 * 1024 * 1024
+      maxBuffer: GIT_SHOW_MAX_BUFFER,
+      timeout: GIT_COMMAND_TIMEOUT_MS
     });
-    return stdout;
+    return { content: stdout };
   } catch (error) {
     if (isExecError(error)) {
-      return null;
+      return {
+        content: null,
+        diagnostic: {
+          kind: 'git_read_failed',
+          file: relativePath,
+          message: `Could not read ${relativePath} at ${ref}: ${error.message}.`
+        }
+      };
     }
 
     throw error;
   }
 }
 
-async function readChangedFilesAtRef(repo: string, ref: string, files: string[]): Promise<Record<string, string>> {
-  const entries = await Promise.all(
-    files.map(async (file) => {
-      const content = await readFileAtGitRef(repo, ref, file);
-      return content === null ? undefined : ([file, content] as const);
-    })
+async function readChangedFilesAtRef(
+  repo: string,
+  ref: string,
+  files: string[]
+): Promise<{ contents: Record<string, string>; diagnostics: AnalysisDiagnostic[] }> {
+  const entries = await mapWithConcurrency(files, GIT_SHOW_CONCURRENCY, async (file) => {
+    const result = await readFileAtGitRefResult(repo, ref, file);
+    return result.content === null
+      ? ({ diagnostic: result.diagnostic } as const)
+      : ({ entry: [file, result.content] as const } as const);
+  });
+  const diagnostics = entries
+    .map((entry) => entry.diagnostic)
+    .filter((diagnostic): diagnostic is AnalysisDiagnostic => diagnostic !== undefined);
+  const contents = Object.fromEntries(
+    entries
+      .map((entry) => entry.entry)
+      .filter((entry): entry is readonly [string, string] => entry !== undefined)
   );
 
-  return Object.fromEntries(entries.filter((entry): entry is readonly [string, string] => entry !== undefined));
+  return { contents, diagnostics };
 }
 
-export async function listPackageJsonFiles(root: string, current = ''): Promise<string[]> {
-  const entries = await readdir(join(root, current), { withFileTypes: true });
-  const files: string[] = [];
-
-  for (const entry of entries) {
-    if (entry.name === 'node_modules' || entry.name === '.git') {
-      continue;
-    }
-
-    // See listScannableFiles: do not follow symlinks out of an untrusted tree.
-    if (entry.isSymbolicLink()) {
-      continue;
-    }
-
-    const relativePath = current ? `${current}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) {
-      files.push(...(await listPackageJsonFiles(root, relativePath)));
-      continue;
-    }
-
-    if (entry.name === 'package.json') {
-      // Same input cap as listScannableFiles: never read an oversized
-      // manifest from an untrusted tree.
-      const stats = await stat(join(root, relativePath));
-      if (withinByteCap(stats.size)) {
-        files.push(relativePath.replace(/\\/g, '/'));
-      }
-    }
-  }
-
-  return files;
+export async function listPackageJsonFiles(root: string): Promise<string[]> {
+  return (await listSafeFiles(root, { includeFile: isPackageJsonFile })).files;
 }
 
 export function relativeFromRoots(root: string, absolutePath: string): string {
   return relative(root, absolutePath).replace(/\\/g, '/');
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  async function worker(): Promise<void> {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await fn(items[currentIndex]);
+    }
+  }
+
+  const workerCount = Math.min(concurrency, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
 }

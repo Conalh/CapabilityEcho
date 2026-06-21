@@ -4,7 +4,7 @@ import {
   type Finding as CanonicalFinding,
   type Report as CanonicalReport,
 } from 'agent-gov-core';
-import type { DiffContext, Finding, FindingSurface, Severity } from './types.js';
+import type { AnalysisDiagnostic, DiffContext, Finding, FindingSurface, Severity } from './types.js';
 
 export type EchoRating = 'none' | Severity;
 export type ReportFormat = 'text' | 'markdown' | 'json' | 'github';
@@ -15,6 +15,11 @@ export interface EchoReport {
   changedFileCount: number;
   scannedSurfaces: FindingSurface[];
   excludedSurfaces: string[];
+  analysisIncomplete: boolean;
+  analysisDiagnosticCount: number;
+  analysisDiagnostics: AnalysisDiagnostic[];
+  suppressedFindingCount: number;
+  expiredExceptionCount: number;
   surfaceSummary: Record<FindingSurface, number>;
   severitySummary: Record<Severity, number>;
   capabilitySummary: string[];
@@ -71,13 +76,27 @@ const SUMMARY_LABELS: Record<string, string> = {
   'capability_echo.lockfile_install_script_added': 'lockfile transitive install scripts'
 };
 
-export function createReport(findings: Finding[], context: DiffContext): EchoReport {
+export interface ExceptionReportSummary {
+  suppressedFindingCount: number;
+  expiredExceptionCount: number;
+}
+
+export function createReport(
+  findings: Finding[],
+  context: DiffContext,
+  exceptionSummary: ExceptionReportSummary = { suppressedFindingCount: 0, expiredExceptionCount: 0 }
+): EchoReport {
   return {
     rating: rateFindings(findings),
     findingCount: findings.length,
     changedFileCount: context.changedFileCount,
     scannedSurfaces: context.scannedSurfaces,
     excludedSurfaces: [...EXCLUDED_SURFACES],
+    analysisIncomplete: context.analysisIncomplete,
+    analysisDiagnosticCount: context.analysisDiagnostics.length,
+    analysisDiagnostics: context.analysisDiagnostics,
+    suppressedFindingCount: exceptionSummary.suppressedFindingCount,
+    expiredExceptionCount: exceptionSummary.expiredExceptionCount,
     surfaceSummary: buildSurfaceSummary(findings),
     severitySummary: buildSeveritySummary(findings),
     capabilitySummary: buildCapabilitySummary(findings),
@@ -97,20 +116,7 @@ export function createReport(findings: Finding[], context: DiffContext): EchoRep
  * consume `EchoReport` directly.
  */
 export function toCanonicalReport(report: EchoReport): CanonicalReport {
-  const findings: CanonicalFinding[] = report.findings.map((f) => {
-    const name = f.kind.startsWith('capability_echo.')
-      ? f.kind.slice('capability_echo.'.length)
-      : f.kind;
-    return createCanonicalFinding({
-      tool: 'capability_echo',
-      name,
-      severity: f.severity,
-      message: f.message,
-      location: f.line !== undefined ? { file: f.file, line: f.line } : { file: f.file },
-      data: { subject: f.subject, recommendation: f.recommendation, surface: f.surface },
-      salientKey: f.subject,
-    });
-  });
+  const findings: CanonicalFinding[] = report.findings.map(toCanonicalFinding);
   return createCanonicalReport({
     tool: 'capability_echo',
     findings,
@@ -118,11 +124,43 @@ export function toCanonicalReport(report: EchoReport): CanonicalReport {
       changedFileCount: report.changedFileCount,
       scannedSurfaces: report.scannedSurfaces,
       excludedSurfaces: report.excludedSurfaces,
+      analysisIncomplete: report.analysisIncomplete,
+      analysisDiagnosticCount: report.analysisDiagnosticCount,
+      analysisDiagnostics: report.analysisDiagnostics,
+      suppressedFindingCount: report.suppressedFindingCount,
+      expiredExceptionCount: report.expiredExceptionCount,
       surfaceSummary: report.surfaceSummary,
       severitySummary: report.severitySummary,
       capabilitySummary: report.capabilitySummary,
       topRecommendations: report.topRecommendations,
     },
+  });
+}
+
+export function toCanonicalFinding(f: Finding): CanonicalFinding {
+  const name = f.kind.startsWith('capability_echo.')
+    ? f.kind.slice('capability_echo.'.length)
+    : f.kind;
+  const data: Record<string, unknown> = {
+    subject: f.subject,
+    recommendation: f.recommendation,
+    surface: f.surface
+  };
+  if (f.exceptionStatus) {
+    data.exceptionStatus = f.exceptionStatus;
+  }
+  if (f.exceptionReason) {
+    data.exceptionReason = f.exceptionReason;
+  }
+
+  return createCanonicalFinding({
+    tool: 'capability_echo',
+    name,
+    severity: f.severity,
+    message: f.message,
+    location: f.line !== undefined ? { file: f.file, line: f.line } : { file: f.file },
+    data,
+    salientKey: f.subject,
   });
 }
 
@@ -186,6 +224,15 @@ function renderMarkdown(report: EchoReport): string {
   lines.push(`Scanned executable surfaces: ${formatSurfaces(report.scannedSurfaces)}.`);
   lines.push(`Excluded surfaces: ${report.excludedSurfaces.join(', ')}.`, '');
 
+  if (report.analysisIncomplete) {
+    lines.push(`> Analysis incomplete: ${report.analysisDiagnosticCount} input${report.analysisDiagnosticCount === 1 ? '' : 's'} could not be examined.`, '');
+  }
+
+  if (report.suppressedFindingCount > 0 || report.expiredExceptionCount > 0) {
+    lines.push(`Suppressed by active exceptions: ${report.suppressedFindingCount}.`);
+    lines.push(`Expired exceptions resurfaced: ${report.expiredExceptionCount}.`, '');
+  }
+
   if (report.findings.length === 0) {
     lines.push('No code or workflow capability drift findings.');
     return `${lines.join('\n')}\n`;
@@ -243,6 +290,13 @@ function renderText(report: EchoReport): string {
   const lines = [`CapabilityEcho capability drift: ${report.rating.toUpperCase()}`];
   lines.push(`Scanned executable surfaces: ${formatSurfaces(report.scannedSurfaces)}.`);
   lines.push(`Excluded surfaces: ${report.excludedSurfaces.join(', ')}.`);
+  if (report.analysisIncomplete) {
+    lines.push(`Analysis incomplete: ${report.analysisDiagnosticCount} input${report.analysisDiagnosticCount === 1 ? '' : 's'} could not be examined.`);
+  }
+  if (report.suppressedFindingCount > 0 || report.expiredExceptionCount > 0) {
+    lines.push(`Suppressed by active exceptions: ${report.suppressedFindingCount}.`);
+    lines.push(`Expired exceptions resurfaced: ${report.expiredExceptionCount}.`);
+  }
 
   if (report.capabilitySummary.length > 0) {
     lines.push(`Signals: ${report.capabilitySummary.join(', ')}`);

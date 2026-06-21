@@ -44,13 +44,18 @@ const SUMMARY_LABELS = {
     'capability_echo.lockfile_telemetry_dep_added': 'lockfile transitive telemetry deps',
     'capability_echo.lockfile_install_script_added': 'lockfile transitive install scripts'
 };
-export function createReport(findings, context) {
+export function createReport(findings, context, exceptionSummary = { suppressedFindingCount: 0, expiredExceptionCount: 0 }) {
     return {
         rating: rateFindings(findings),
         findingCount: findings.length,
         changedFileCount: context.changedFileCount,
         scannedSurfaces: context.scannedSurfaces,
         excludedSurfaces: [...EXCLUDED_SURFACES],
+        analysisIncomplete: context.analysisIncomplete,
+        analysisDiagnosticCount: context.analysisDiagnostics.length,
+        analysisDiagnostics: context.analysisDiagnostics,
+        suppressedFindingCount: exceptionSummary.suppressedFindingCount,
+        expiredExceptionCount: exceptionSummary.expiredExceptionCount,
         surfaceSummary: buildSurfaceSummary(findings),
         severitySummary: buildSeveritySummary(findings),
         capabilitySummary: buildCapabilitySummary(findings),
@@ -69,20 +74,7 @@ export function createReport(findings, context) {
  * consume `EchoReport` directly.
  */
 export function toCanonicalReport(report) {
-    const findings = report.findings.map((f) => {
-        const name = f.kind.startsWith('capability_echo.')
-            ? f.kind.slice('capability_echo.'.length)
-            : f.kind;
-        return createCanonicalFinding({
-            tool: 'capability_echo',
-            name,
-            severity: f.severity,
-            message: f.message,
-            location: f.line !== undefined ? { file: f.file, line: f.line } : { file: f.file },
-            data: { subject: f.subject, recommendation: f.recommendation, surface: f.surface },
-            salientKey: f.subject,
-        });
-    });
+    const findings = report.findings.map(toCanonicalFinding);
     return createCanonicalReport({
         tool: 'capability_echo',
         findings,
@@ -90,11 +82,41 @@ export function toCanonicalReport(report) {
             changedFileCount: report.changedFileCount,
             scannedSurfaces: report.scannedSurfaces,
             excludedSurfaces: report.excludedSurfaces,
+            analysisIncomplete: report.analysisIncomplete,
+            analysisDiagnosticCount: report.analysisDiagnosticCount,
+            analysisDiagnostics: report.analysisDiagnostics,
+            suppressedFindingCount: report.suppressedFindingCount,
+            expiredExceptionCount: report.expiredExceptionCount,
             surfaceSummary: report.surfaceSummary,
             severitySummary: report.severitySummary,
             capabilitySummary: report.capabilitySummary,
             topRecommendations: report.topRecommendations,
         },
+    });
+}
+export function toCanonicalFinding(f) {
+    const name = f.kind.startsWith('capability_echo.')
+        ? f.kind.slice('capability_echo.'.length)
+        : f.kind;
+    const data = {
+        subject: f.subject,
+        recommendation: f.recommendation,
+        surface: f.surface
+    };
+    if (f.exceptionStatus) {
+        data.exceptionStatus = f.exceptionStatus;
+    }
+    if (f.exceptionReason) {
+        data.exceptionReason = f.exceptionReason;
+    }
+    return createCanonicalFinding({
+        tool: 'capability_echo',
+        name,
+        severity: f.severity,
+        message: f.message,
+        location: f.line !== undefined ? { file: f.file, line: f.line } : { file: f.file },
+        data,
+        salientKey: f.subject,
     });
 }
 export function renderReport(report, format) {
@@ -145,6 +167,13 @@ function renderMarkdown(report) {
     const lines = [`# CapabilityEcho capability drift: ${report.rating.toUpperCase()}`, ''];
     lines.push(`Scanned executable surfaces: ${formatSurfaces(report.scannedSurfaces)}.`);
     lines.push(`Excluded surfaces: ${report.excludedSurfaces.join(', ')}.`, '');
+    if (report.analysisIncomplete) {
+        lines.push(`> Analysis incomplete: ${report.analysisDiagnosticCount} input${report.analysisDiagnosticCount === 1 ? '' : 's'} could not be examined.`, '');
+    }
+    if (report.suppressedFindingCount > 0 || report.expiredExceptionCount > 0) {
+        lines.push(`Suppressed by active exceptions: ${report.suppressedFindingCount}.`);
+        lines.push(`Expired exceptions resurfaced: ${report.expiredExceptionCount}.`, '');
+    }
     if (report.findings.length === 0) {
         lines.push('No code or workflow capability drift findings.');
         return `${lines.join('\n')}\n`;
@@ -196,6 +225,13 @@ function renderText(report) {
     const lines = [`CapabilityEcho capability drift: ${report.rating.toUpperCase()}`];
     lines.push(`Scanned executable surfaces: ${formatSurfaces(report.scannedSurfaces)}.`);
     lines.push(`Excluded surfaces: ${report.excludedSurfaces.join(', ')}.`);
+    if (report.analysisIncomplete) {
+        lines.push(`Analysis incomplete: ${report.analysisDiagnosticCount} input${report.analysisDiagnosticCount === 1 ? '' : 's'} could not be examined.`);
+    }
+    if (report.suppressedFindingCount > 0 || report.expiredExceptionCount > 0) {
+        lines.push(`Suppressed by active exceptions: ${report.suppressedFindingCount}.`);
+        lines.push(`Expired exceptions resurfaced: ${report.expiredExceptionCount}.`);
+    }
     if (report.capabilitySummary.length > 0) {
         lines.push(`Signals: ${report.capabilitySummary.join(', ')}`);
     }

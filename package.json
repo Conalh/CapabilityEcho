@@ -3,11 +3,18 @@
   "version": "0.3.2",
   "description": "Code review for AI agent capability drift in pull requests.",
   "type": "module",
+  "files": [
+    "dist/",
+    "action.yml",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
   "bin": {
     "capabilityecho": "./dist/index.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "repository": {
     "type": "git",

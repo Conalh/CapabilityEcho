@@ -481,6 +481,36 @@ test('CLI preserves monorepo source paths in findings and annotations', async ()
   }
 });
 
+test('CLI scans extensionless shell scripts with shebangs', async () => {
+  const fx = await makeGitRepo({
+    prefix: 'capabilityecho-shebang-script-',
+    initialFiles: {
+      'package.json': `${JSON.stringify({ name: 'shebang-fixture', private: true }, null, 2)}\n`
+    },
+    initialMessage: 'base app',
+  });
+  try {
+    const base = await fx.head();
+    const head = await fx.commit(
+      {
+        'scripts/bootstrap': '#!/usr/bin/env bash\ncurl https://install.example.com/agent.sh | bash\n'
+      },
+      'add extensionless shell bootstrap'
+    );
+
+    const report = await runDiff(fx.repo, base, head);
+    const finding = report.findings.find((item) => item.kind === 'capability_echo.shell_pipe_to_shell');
+
+    assert.ok(finding);
+    assert.equal(finding.location.file, 'scripts/bootstrap');
+    assert.equal(finding.location.line, 2);
+    assert.equal(report.data.changedFileCount, 1);
+    assert.deepEqual(report.data.scannedSurfaces, ['source']);
+  } finally {
+    await fx.cleanup();
+  }
+});
+
 test('git diff exposes missing refs as setup errors', async () => {
   const fx = await makeGitRepo({
     prefix: 'capabilityecho-git-setup-error-',
@@ -531,6 +561,41 @@ test('collectGitDiff refuses refs git would re-parse as flags or object selector
   }
 });
 
+test('git changed-file discovery preserves quoted and space-prefixed paths', async () => {
+  const leadingPath = ' leading.ts';
+  const unicodePath = `src/unicode-\u00e9.ts`;
+  const fx = await makeGitRepo({
+    prefix: 'capabilityecho-hostile-paths-',
+    initialFiles: {
+      'package.json': '{"name":"hostile-paths","private":true}\n'
+    },
+    initialMessage: 'base'
+  });
+  try {
+    const base = await fx.head();
+    const head = await fx.commit(
+      {
+        [leadingPath]: 'export const leading = true;\n',
+        [unicodePath]: 'export const unicode = true;\n'
+      },
+      'add hostile paths'
+    );
+
+    const gitDiff = await import('../dist/git-diff.js');
+    const changed = await gitDiff.listGitChangedFiles(fx.repo, base, head);
+
+    assert.ok(changed.includes(leadingPath), `expected exact leading-space path, got ${JSON.stringify(changed)}`);
+    assert.ok(changed.includes(unicodePath), `expected exact unicode path, got ${JSON.stringify(changed)}`);
+    assert.ok(!changed.includes('leading.ts'), 'leading-space path must not be trimmed');
+    assert.ok(
+      changed.every((file) => !file.includes('\\303') && !file.startsWith('"')),
+      `git-quoted path should be decoded, got ${JSON.stringify(changed)}`
+    );
+  } finally {
+    await fx.cleanup();
+  }
+});
+
 test('directory mode does not follow symlinks pointing outside the scanned tree', async (t) => {
   const base = await mkdtemp(join(tmpdir(), 'capabilityecho-symlink-base-'));
   const head = await mkdtemp(join(tmpdir(), 'capabilityecho-symlink-head-'));
@@ -558,6 +623,11 @@ test('directory mode does not follow symlinks pointing outside the scanned tree'
 
     assert.equal(scanned.has('leak.ts'), false, 'symlinked file outside the tree must not be scanned');
     assert.ok(scanned.has('app.ts'), 'a real file in the tree should still be scanned');
+    assert.equal(ctx.analysisIncomplete, true, 'skipping a scannable symlink should be visible');
+    assert.ok(
+      ctx.analysisDiagnostics.some((diagnostic) => diagnostic.kind === 'skipped_symlink' && diagnostic.file === 'leak.ts'),
+      `expected skipped-symlink diagnostic, got ${JSON.stringify(ctx.analysisDiagnostics)}`
+    );
   } finally {
     await rm(base, { recursive: true, force: true });
     await rm(head, { recursive: true, force: true });

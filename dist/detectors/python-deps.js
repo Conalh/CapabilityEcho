@@ -1,6 +1,5 @@
-import { readFile } from 'node:fs/promises';
 import { parseToml, lineOfTomlKey } from 'agent-gov-core';
-import { configPath } from '../discovery.js';
+import { listSafeFiles, readTextWithinRoot } from '../discovery.js';
 import { listGitChangedFiles, readFileAtGitRef } from '../git-diff.js';
 import { isPythonManifestFile } from '../paths.js';
 // Python-side equivalent of HIGH_CAPABILITY_DEPS in package-deps.
@@ -17,7 +16,7 @@ const HIGH_CAPABILITY_PY_DEPS = new Set([
     // SSH / remote execution.
     'paramiko', 'asyncssh', 'spurplus', 'spur',
     // Code-execution-shaped libraries.
-    'RestrictedPython', 'asteval',
+    'restrictedpython', 'asteval',
 ]);
 const TELEMETRY_PY_DEPS = new Set([
     'sentry-sdk', 'opentelemetry-sdk', 'datadog', 'ddtrace',
@@ -36,25 +35,11 @@ export async function detectPythonDeps(mode) {
     }
     return findings;
 }
-async function listPythonManifestFiles(root, current = '') {
-    const { readdir } = await import('node:fs/promises');
-    const { join } = await import('node:path');
-    const entries = await readdir(join(root, current), { withFileTypes: true });
-    const files = [];
-    for (const entry of entries) {
-        if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === '.venv' || entry.name === 'venv') {
-            continue;
-        }
-        const relativePath = current ? `${current}/${entry.name}` : entry.name;
-        if (entry.isDirectory()) {
-            files.push(...(await listPythonManifestFiles(root, relativePath)));
-            continue;
-        }
-        if (isPythonManifestFile(relativePath)) {
-            files.push(relativePath.replace(/\\/g, '/'));
-        }
-    }
-    return files;
+async function listPythonManifestFiles(root) {
+    return (await listSafeFiles(root, {
+        includeFile: isPythonManifestFile,
+        excludedDirs: ['node_modules', '.git', '.venv', 'venv']
+    })).files;
 }
 async function listChangedPythonManifestFiles(repo, base, head) {
     return (await listGitChangedFiles(repo, base, head)).filter(isPythonManifestFile);
@@ -62,12 +47,7 @@ async function listChangedPythonManifestFiles(repo, base, head) {
 async function readManifestTextAt(mode, file, side) {
     if (mode.mode === 'directories') {
         const root = side === 'old' ? mode.oldRoot : mode.newRoot;
-        try {
-            return await readFile(configPath(root, file), 'utf8');
-        }
-        catch {
-            return '';
-        }
+        return (await readTextWithinRoot(root, file)).text;
     }
     const ref = side === 'old' ? mode.base : mode.head;
     return (await readFileAtGitRef(mode.repo, ref, file)) ?? '';

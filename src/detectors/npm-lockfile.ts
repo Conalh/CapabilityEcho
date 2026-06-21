@@ -1,8 +1,5 @@
-import { readFile } from 'node:fs/promises';
-import { readdir } from 'node:fs/promises';
-import { join } from 'node:path';
 import { isRecord, lineOfJsonKey } from '../discovery.js';
-import { configPath } from '../discovery.js';
+import { listSafeFiles, readTextWithinRoot } from '../discovery.js';
 import { listGitChangedFiles, readFileAtGitRef } from '../git-diff.js';
 import { isNpmLockfile } from '../paths.js';
 import type { Finding } from '../types.js';
@@ -44,27 +41,8 @@ export async function detectNpmLockfile(mode: NpmLockfileDiffMode): Promise<Find
   return findings;
 }
 
-async function listLockfilesInTree(root: string, current = ''): Promise<string[]> {
-  const entries = await readdir(join(root, current), { withFileTypes: true });
-  const files: string[] = [];
-
-  for (const entry of entries) {
-    if (entry.name === 'node_modules' || entry.name === '.git') {
-      continue;
-    }
-
-    const relativePath = current ? `${current}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) {
-      files.push(...(await listLockfilesInTree(root, relativePath)));
-      continue;
-    }
-
-    if (isNpmLockfile(relativePath)) {
-      files.push(relativePath.replace(/\\/g, '/'));
-    }
-  }
-
-  return files;
+async function listLockfilesInTree(root: string): Promise<string[]> {
+  return (await listSafeFiles(root, { includeFile: isNpmLockfile })).files;
 }
 
 async function readLockfileAt(
@@ -74,11 +52,7 @@ async function readLockfileAt(
 ): Promise<string> {
   if (mode.mode === 'directories') {
     const root = side === 'old' ? mode.oldRoot : mode.newRoot;
-    try {
-      return await readFile(configPath(root, file), 'utf8');
-    } catch {
-      return '';
-    }
+    return (await readTextWithinRoot(root, file)).text;
   }
 
   const ref = side === 'old' ? mode.base : mode.head;
@@ -88,8 +62,13 @@ async function readLockfileAt(
 interface LockEntry {
   /** The lockfile key, e.g. `node_modules/foo` or `node_modules/foo/node_modules/bar`. */
   path: string;
+  /** JSON key to use for line annotations. */
+  locatorKey: string;
   /** Bare package name extracted from the path (scope-aware). */
   name: string;
+  version?: string;
+  resolved?: string;
+  integrity?: string;
   hasInstallScript: boolean;
 }
 
@@ -97,18 +76,21 @@ function compareLockfile(file: string, oldText: string, newText: string): Findin
   const oldEntries = readPackagesMap(oldText);
   const newEntries = readPackagesMap(newText);
   const findings: Finding[] = [];
-  const oldPaths = new Set(oldEntries.map((entry) => entry.path));
+  const oldByPath = new Map(oldEntries.map((entry) => [entry.path, entry]));
 
   for (const entry of newEntries) {
-    if (oldPaths.has(entry.path)) {
-      // Already present — skip even if hasInstallScript flipped; we only
-      // flag newly-introduced packages so we don't churn on lockfile rewrites.
+    const oldEntry = oldByPath.get(entry.path);
+    const introduced = oldEntry === undefined;
+    const metadataChanged = oldEntry !== undefined && lockEntrySignature(oldEntry) !== lockEntrySignature(entry);
+    const installScriptAdded = entry.hasInstallScript && oldEntry?.hasInstallScript !== true;
+
+    if (!introduced && !metadataChanged && !installScriptAdded) {
       continue;
     }
 
-    const line = lineOfJsonKey(newText, entry.path);
+    const line = lineOfJsonKey(newText, entry.locatorKey);
 
-    if (HIGH_CAPABILITY_DEPS.has(entry.name)) {
+    if ((introduced || metadataChanged) && HIGH_CAPABILITY_DEPS.has(entry.name)) {
       findings.push({
         kind: 'capability_echo.lockfile_high_capability_dep_added',
         surface: 'package',
@@ -119,7 +101,7 @@ function compareLockfile(file: string, oldText: string, newText: string): Findin
         message: `Lockfile pulls in "${entry.name}" — a network/subprocess/eval-shaped dependency — that was not previously present.`,
         recommendation: 'Verify the upstream change that introduced this transitive dep is intentional and trusted.'
       });
-    } else if (TELEMETRY_DEPS.has(entry.name)) {
+    } else if ((introduced || metadataChanged) && TELEMETRY_DEPS.has(entry.name)) {
       findings.push({
         kind: 'capability_echo.lockfile_telemetry_dep_added',
         surface: 'package',
@@ -132,7 +114,7 @@ function compareLockfile(file: string, oldText: string, newText: string): Findin
       });
     }
 
-    if (entry.hasInstallScript) {
+    if (installScriptAdded) {
       findings.push({
         kind: 'capability_echo.lockfile_install_script_added',
         surface: 'package',
@@ -161,8 +143,12 @@ function readPackagesMap(text: string): LockEntry[] {
     return [];
   }
 
-  if (!isRecord(parsed) || !isRecord(parsed.packages)) {
+  if (!isRecord(parsed)) {
     return [];
+  }
+
+  if (!isRecord(parsed.packages)) {
+    return isRecord(parsed.dependencies) ? readLegacyDependenciesMap(parsed.dependencies) : [];
   }
 
   const entries: LockEntry[] = [];
@@ -176,11 +162,57 @@ function readPackagesMap(text: string): LockEntry[] {
       continue;
     }
 
-    const hasInstallScript = isRecord(value) && value.hasInstallScript === true;
-    entries.push({ path, name, hasInstallScript });
+    entries.push(lockEntryFromValue(path, path, name, value));
   }
 
   return entries;
+}
+
+function readLegacyDependenciesMap(
+  dependencies: Record<string, unknown>,
+  parentPath = ''
+): LockEntry[] {
+  const entries: LockEntry[] = [];
+  for (const [name, value] of Object.entries(dependencies)) {
+    if (!isRecord(value)) {
+      continue;
+    }
+
+    const path = parentPath ? `${parentPath}/node_modules/${name}` : `node_modules/${name}`;
+    entries.push(lockEntryFromValue(path, name, name, value));
+
+    if (isRecord(value.dependencies)) {
+      entries.push(...readLegacyDependenciesMap(value.dependencies, path));
+    }
+  }
+
+  return entries;
+}
+
+function lockEntryFromValue(path: string, locatorKey: string, name: string, value: unknown): LockEntry {
+  const record = isRecord(value) ? value : {};
+  return {
+    path,
+    locatorKey,
+    name,
+    version: stringValue(record.version),
+    resolved: stringValue(record.resolved),
+    integrity: stringValue(record.integrity),
+    hasInstallScript: record.hasInstallScript === true
+  };
+}
+
+function lockEntrySignature(entry: LockEntry): string {
+  return JSON.stringify({
+    version: entry.version ?? '',
+    resolved: entry.resolved ?? '',
+    integrity: entry.integrity ?? '',
+    hasInstallScript: entry.hasInstallScript
+  });
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
 }
 
 function bareNameFromLockfilePath(path: string): string | undefined {

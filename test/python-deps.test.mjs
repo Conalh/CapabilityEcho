@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { DEFAULT_MAX_INPUT_BYTES } from 'agent-gov-core';
 import { detectPythonDeps } from '../dist/detectors/python-deps.js';
 import { makeOldNewFixture } from 'agent-gov-core/test-utils';
 
@@ -20,6 +21,22 @@ test('flags newly added high-capability dep in requirements.txt', async () => {
     assert.equal(f.kind, 'capability_echo.high_capability_dep_added');
     assert.equal(f.severity, 'high');
     assert.equal(f.line, 2);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test('flags normalized RestrictedPython dependency names', async () => {
+  const fixture = await makeFixture(
+    { 'requirements.txt': '' },
+    { 'requirements.txt': 'RestrictedPython==7.3\n' }
+  );
+  try {
+    const findings = await detectPythonDeps({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
+    const f = findings.find((finding) => finding.subject === 'restrictedpython');
+    assert.ok(f, 'RestrictedPython should be matched after PEP-503 normalization');
+    assert.equal(f.kind, 'capability_echo.high_capability_dep_added');
+    assert.equal(f.severity, 'high');
   } finally {
     await fixture.cleanup();
   }
@@ -183,6 +200,20 @@ test('ignores benign Python deps', async () => {
   try {
     const findings = await detectPythonDeps({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
     assert.equal(findings.length, 0);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test('directory mode skips oversized Python manifests', async () => {
+  const oversizedRequirements = `${'x'.repeat(DEFAULT_MAX_INPUT_BYTES + 1)}\nrequests==2.31.0\n`;
+  const fixture = await makeFixture(
+    {},
+    { 'requirements.txt': oversizedRequirements }
+  );
+  try {
+    const findings = await detectPythonDeps({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
+    assert.equal(findings.length, 0, 'oversized manifests must be skipped before parsing');
   } finally {
     await fixture.cleanup();
   }
