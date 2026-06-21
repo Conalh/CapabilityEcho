@@ -1,7 +1,7 @@
 # CapabilityEcho
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Node](https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white)](package.json)
+[![Node](https://img.shields.io/badge/node-%E2%89%A522-339933?logo=node.js&logoColor=white)](package.json)
 [![Local-only](https://img.shields.io/badge/runs-local%20only-2ea44f)](#how-it-works)
 [![Release](https://img.shields.io/github/v/release/Conalh/CapabilityEcho)](https://github.com/Conalh/CapabilityEcho/releases)
 
@@ -126,7 +126,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0          # required: PR base + head are compared
-      - uses: Conalh/CapabilityEcho@v0.3.2
+      - uses: Conalh/CapabilityEcho@v0.3.3
         with:
           fail-on: none           # start advisory, raise to high/critical later
 ```
@@ -150,6 +150,8 @@ node dist/index.js diff `
 # Compare two git refs in a real repo
 node dist/index.js diff --repo . --base main --head HEAD --format text
 ```
+
+CapabilityEcho requires Node 22 or newer. CI exercises Node 22 and 24.
 
 ## Example output
 
@@ -207,13 +209,15 @@ Top recommendations: Replace remote pipe-to-shell patterns with pinned, reviewab
 - Fires small, explicit detectors for patterns that expand capability: external network calls, subprocess/shell spawns, dynamic `eval`/`exec`, unsafe deserialization, high-capability deps, npm lifecycle and pipe-to-shell scripts, workflow write permissions and external requests, secret-tainted exfil patterns.
 - Workflows get a structural YAML pass backed by a line pass for shell text inside `run:` blocks.
 - Findings carry severity, file + line, and a recommendation. The action exits non-zero only when `fail-on` is met.
-- Checked-in exception baselines can suppress known findings, but suppression counts remain in report metadata and expired exceptions re-surface as low-severity findings.
+- Checked-in exception baselines from the trusted base revision can suppress known findings. PR-local exception policy changes are reported visibly and take effect only after merge.
 
 CapabilityEcho does **not** scan agent config files like `.mcp.json` or `.claude/settings.json`; that is [ScopeTrail](https://github.com/Conalh/ScopeTrail)'s lane. The two are designed to run together.
 
 ## Exception baselines
 
-CapabilityEcho auto-loads `.capabilityecho-exceptions.json` from the candidate tree/head when present. You can override the path with `--exceptions <path>` or the Action `exceptions-file` input.
+CapabilityEcho auto-loads `.capabilityecho-exceptions.json` from the trusted base side of the diff (`--old` in directory mode, `--base` in git mode). You can override the path with `--exceptions <path>` or the Action `exceptions-file` input.
+
+If a PR adds, deletes, or edits the exception file, that candidate policy is not applied to the same analysis. The change is reported as `capability_echo.exception_policy_changed` and takes effect only after merge, when it becomes part of the trusted base revision.
 
 ```json
 {
@@ -228,9 +232,9 @@ CapabilityEcho auto-loads `.capabilityecho-exceptions.json` from the candidate t
 }
 ```
 
-Rules use the shared `agent-gov-core` exception shape: `kind` is required; `salientKey` and `pathPrefix` narrow the match; `expires` makes stale exceptions visible; `reason` is required by CapabilityEcho so every suppression has a checked-in justification. Active matches are removed from findings and counted as `suppressedFindingCount`. Expired matches reappear with a low severity, an `[EXPIRED WHITELIST]` message prefix, and `data.exceptionReason` in JSON.
+Rules use the shared `agent-gov-core` exception shape: `kind` is required; `salientKey` and `pathPrefix` narrow the match; `expires` makes stale exceptions visible; `reason` is required by CapabilityEcho so every suppression has a checked-in justification. Active matches are removed from findings, counted as `suppressedFindingCount`, and recorded in `data.suppressedFindings` with fingerprint, kind, location, reason, and expiry. Expired matches do not lower the original finding severity; the original finding remains visible at its original severity and a separate low-severity `capability_echo.exception_expired` finding explains the expired exception with `data.exceptionReason`.
 
-Invalid exception files do not suppress anything. They mark `analysisIncomplete`, add an `exception_config_error` diagnostic, and keep all findings visible. Input-read and parser diagnostics are not findings and cannot be suppressed by exception rules.
+Invalid exception files do not suppress anything. They mark `analysisIncomplete`, add an `exception_config_error` diagnostic, and keep all findings visible. Candidate-side invalid exception changes are reported but are not applied. Input-read and parser diagnostics are not findings and cannot be suppressed by exception rules.
 
 ## Threat model and limits
 
@@ -260,6 +264,10 @@ Concrete limits worth knowing before you trust a verdict:
   targets can still be missed. Closing this is on the roadmap (see below).
 - **Added-line bias by design.** Capability that already existed in the base, or
   that is reachable only through unchanged code, is out of scope on purpose.
+- **Package lockfile support is npm `package-lock.json` only today.** Yarn,
+  pnpm, Bun, Poetry, and uv lockfile formats are backlog items; dependency
+  manifest scanning still covers `package.json`, `requirements*.txt`, and
+  `pyproject.toml` direct declarations.
 
 ## Design choices worth flagging
 
@@ -277,7 +285,7 @@ Concrete limits worth knowing before you trust a verdict:
 | --- | --- | --- |
 | `--old <dir>` / `--new <dir>` | — | Directory-mode diff. |
 | `--repo <path>` / `--base <ref>` / `--head <ref>` | repo = cwd | Git-mode diff between two refs in a real repo. |
-| `--exceptions <path>` | `.capabilityecho-exceptions.json` when present | Repo-relative JSON exception baseline loaded from the new directory or head ref. |
+| `--exceptions <path>` | `.capabilityecho-exceptions.json` when present | Repo-relative JSON exception baseline loaded from the old directory or base ref. |
 | `--format` | `text` | `text`, `markdown`, `json` (canonical envelope), `github` (annotations). |
 | `--fail-on` | `none` | Exit non-zero if the highest finding meets this severity: `none`, `low`, `medium`, `high`, `critical`. |
 
@@ -291,7 +299,7 @@ Concrete limits worth knowing before you trust a verdict:
 | `max-findings` | `0` (unlimited) | Truncate Action outputs + step summary to top-N by severity. Rating and `fail-on` still use the full set. |
 | `max-output-bytes` | `0` (unlimited) | Suppress `report-markdown` / `report-json` Action outputs over this size (step summary kept). |
 | `report-file` | _empty_ | Path to write the full Markdown report (plus a sibling `.json`). Pair with `actions/upload-artifact`. |
-| `exceptions-file` | `.capabilityecho-exceptions.json` when present | Repo-relative JSON exception baseline loaded from the candidate ref. |
+| `exceptions-file` | `.capabilityecho-exceptions.json` when present | Repo-relative JSON exception baseline loaded from the trusted base ref. |
 
 ### GitHub Action outputs
 

@@ -1,19 +1,20 @@
-import { applyExceptions, validateException, type Exception, type Finding as CanonicalFinding } from 'agent-gov-core';
+import { validateException, type Exception, type Finding as CanonicalFinding } from 'agent-gov-core';
 import { readTextWithinRoot } from './discovery.js';
 import { readFileAtGitRef } from './git-diff.js';
 import { toCanonicalFinding } from './report.js';
-import type { AnalysisDiagnostic, Finding, FindingSurface, Severity } from './types.js';
+import type { AnalysisDiagnostic, Finding, SuppressedFindingMetadata } from './types.js';
 
 export const DEFAULT_EXCEPTIONS_FILE = '.capabilityecho-exceptions.json';
 
 export type ExceptionLoadMode =
-  | { mode: 'directories'; root: string; exceptionsFile?: string }
-  | { mode: 'git'; repo: string; head: string; exceptionsFile?: string };
+  | { mode: 'directories'; trustedRoot: string; candidateRoot: string; exceptionsFile?: string }
+  | { mode: 'git'; repo: string; trustedRef: string; candidateRef: string; exceptionsFile?: string };
 
 export interface ExceptionApplicationResult {
   findings: Finding[];
   suppressedFindingCount: number;
   expiredExceptionCount: number;
+  suppressedFindings: SuppressedFindingMetadata[];
   diagnostics: AnalysisDiagnostic[];
 }
 
@@ -22,38 +23,39 @@ export async function applyExceptionBaseline(
   mode: ExceptionLoadMode
 ): Promise<ExceptionApplicationResult> {
   const loaded = await loadExceptions(mode);
+  const policyFindings = buildPolicyFindings(loaded);
   if (loaded.exceptions.length === 0) {
     return {
-      findings,
+      findings: [...findings, ...policyFindings],
       suppressedFindingCount: 0,
       expiredExceptionCount: 0,
+      suppressedFindings: [],
       diagnostics: loaded.diagnostics
     };
   }
 
-  const originalsByFingerprint = new Map<string, Finding>();
-  const canonicalFindings = findings.map((finding) => {
-    const canonical = toCanonicalFinding(finding);
-    if (canonical.fingerprint) {
-      originalsByFingerprint.set(canonical.fingerprint, finding);
-    }
-    return canonical;
-  });
-
-  const applied = applyExceptions(canonicalFindings, loaded.exceptions);
+  const applied = applyTrustedExceptions(findings, loaded.exceptions);
   return {
-    findings: applied.findings.map((finding) => fromCanonicalFinding(finding, originalsByFingerprint)),
-    suppressedFindingCount: applied.suppressed,
-    expiredExceptionCount: applied.expired,
+    findings: [...applied.findings, ...policyFindings],
+    suppressedFindingCount: applied.suppressedFindingCount,
+    expiredExceptionCount: applied.expiredExceptionCount,
+    suppressedFindings: applied.suppressedFindings,
     diagnostics: loaded.diagnostics
   };
 }
 
-async function loadExceptions(mode: ExceptionLoadMode): Promise<{ exceptions: Exception[]; diagnostics: AnalysisDiagnostic[] }> {
+async function loadExceptions(mode: ExceptionLoadMode): Promise<{
+  exceptions: Exception[];
+  diagnostics: AnalysisDiagnostic[];
+  exceptionsFile: string | undefined;
+  policyChanged: boolean;
+}> {
   const exceptionsFile = normalizeExceptionPath(mode.exceptionsFile || DEFAULT_EXCEPTIONS_FILE);
   if (!exceptionsFile) {
     return {
       exceptions: [],
+      exceptionsFile,
+      policyChanged: false,
       diagnostics: [
         {
           kind: 'exception_config_error',
@@ -64,16 +66,33 @@ async function loadExceptions(mode: ExceptionLoadMode): Promise<{ exceptions: Ex
   }
 
   const explicit = Boolean(mode.exceptionsFile);
-  const text =
+  const trusted =
     mode.mode === 'directories'
-      ? await readDirectoryExceptionFile(mode.root, exceptionsFile, explicit)
-      : await readGitExceptionFile(mode.repo, mode.head, exceptionsFile, explicit);
+      ? await readDirectoryExceptionFile(mode.trustedRoot, exceptionsFile, explicit)
+      : await readGitExceptionFile(mode.repo, mode.trustedRef, exceptionsFile, explicit);
+  const candidate =
+    mode.mode === 'directories'
+      ? await readDirectoryExceptionFile(mode.candidateRoot, exceptionsFile, false)
+      : await readGitExceptionFile(mode.repo, mode.candidateRef, exceptionsFile, false);
 
-  if (text.diagnostics.length > 0 || !text.content.trim()) {
-    return { exceptions: [], diagnostics: text.diagnostics };
+  const diagnostics = [...trusted.diagnostics];
+  const policyChanged = trusted.content !== candidate.content;
+  if (policyChanged && candidate.content.trim()) {
+    const candidateParsed = parseExceptionConfig(candidate.content, exceptionsFile);
+    diagnostics.push(...candidateParsed.diagnostics);
   }
 
-  return parseExceptionConfig(text.content, exceptionsFile);
+  if (trusted.diagnostics.length > 0 || !trusted.content.trim()) {
+    return { exceptions: [], diagnostics, exceptionsFile, policyChanged };
+  }
+
+  const trustedParsed = parseExceptionConfig(trusted.content, exceptionsFile);
+  return {
+    ...trustedParsed,
+    diagnostics: [...diagnostics, ...trustedParsed.diagnostics],
+    exceptionsFile,
+    policyChanged
+  };
 }
 
 async function readDirectoryExceptionFile(
@@ -197,33 +216,131 @@ function parseExceptionConfig(text: string, file: string): { exceptions: Excepti
   return diagnostics.length > 0 ? { exceptions: [], diagnostics } : { exceptions, diagnostics: [] };
 }
 
-function fromCanonicalFinding(finding: CanonicalFinding, originalsByFingerprint: Map<string, Finding>): Finding {
-  const original = finding.fingerprint ? originalsByFingerprint.get(finding.fingerprint) : undefined;
-  if (original) {
-    const exceptionReason =
-      typeof finding.data?.exceptionReason === 'string' ? finding.data.exceptionReason : original.exceptionReason;
-    return {
-      ...original,
-      severity: finding.severity as Severity,
-      message: finding.message,
-      exceptionStatus: exceptionReason ? 'expired' : original.exceptionStatus,
-      exceptionReason
-    };
+function applyTrustedExceptions(
+  findings: Finding[],
+  exceptions: Exception[],
+  now = new Date()
+): Pick<ExceptionApplicationResult, 'findings' | 'suppressedFindingCount' | 'expiredExceptionCount' | 'suppressedFindings'> {
+  const out: Finding[] = [];
+  const suppressedFindings: SuppressedFindingMetadata[] = [];
+  let expiredExceptionCount = 0;
+
+  for (const finding of findings) {
+    const canonical = toCanonicalFinding(finding);
+    const matches = findAllMatchingExceptions(canonical, exceptions);
+    if (matches.length === 0) {
+      out.push(finding);
+      continue;
+    }
+
+    const active = matches.find((exception) => !exception.expires || !isExpired(exception.expires, now));
+    if (active) {
+      suppressedFindings.push(toSuppressedMetadata(canonical, active));
+      continue;
+    }
+
+    out.push(finding);
+    out.push(toExpiredExceptionFinding(finding, matches[0]));
+    expiredExceptionCount += 1;
   }
 
-  const surface = isFindingSurface(finding.data?.surface) ? finding.data.surface : 'source';
   return {
-    kind: finding.kind,
-    surface,
-    severity: finding.severity as Severity,
-    file: finding.location?.file ?? '',
-    line: finding.location?.line,
-    subject: typeof finding.data?.subject === 'string' ? finding.data.subject : finding.salientKey ?? finding.kind,
-    message: finding.message,
-    recommendation: typeof finding.data?.recommendation === 'string' ? finding.data.recommendation : 'Review the finding.',
-    exceptionStatus: finding.data?.exceptionReason ? 'expired' : undefined,
-    exceptionReason: typeof finding.data?.exceptionReason === 'string' ? finding.data.exceptionReason : undefined
+    findings: out,
+    suppressedFindingCount: suppressedFindings.length,
+    expiredExceptionCount,
+    suppressedFindings
   };
+}
+
+function findAllMatchingExceptions(finding: CanonicalFinding, exceptions: Exception[]): Exception[] {
+  const out: Exception[] = [];
+  for (const exception of exceptions) {
+    if (exception.kind !== finding.kind) {
+      continue;
+    }
+    if (exception.salientKey !== undefined && exception.salientKey !== finding.salientKey) {
+      continue;
+    }
+    if (exception.pathPrefix !== undefined && !pathPrefixMatches(finding.location?.file, exception.pathPrefix)) {
+      continue;
+    }
+    out.push(exception);
+  }
+
+  return out;
+}
+
+function toSuppressedMetadata(finding: CanonicalFinding, exception: Exception): SuppressedFindingMetadata {
+  return {
+    fingerprint: finding.fingerprint ?? '',
+    kind: finding.kind,
+    location: {
+      file: finding.location?.file ?? '',
+      ...(finding.location?.line !== undefined ? { line: finding.location.line } : {})
+    },
+    reason: exception.reason ?? '',
+    ...(exception.expires !== undefined ? { expires: exception.expires } : {})
+  };
+}
+
+function toExpiredExceptionFinding(finding: Finding, exception: Exception): Finding {
+  return {
+    kind: 'capability_echo.exception_expired',
+    surface: finding.surface,
+    severity: 'low',
+    file: finding.file,
+    line: finding.line,
+    subject: 'Expired CapabilityEcho exception',
+    message: 'A matching CapabilityEcho exception has expired; the original finding is reported at its original severity.',
+    recommendation: 'Remove or renew the exception after reviewing the underlying finding.',
+    exceptionStatus: 'expired',
+    exceptionReason: exception.reason
+  };
+}
+
+function buildPolicyFindings(loaded: { exceptionsFile: string | undefined; policyChanged: boolean }): Finding[] {
+  if (!loaded.policyChanged || !loaded.exceptionsFile) {
+    return [];
+  }
+
+  return [
+    {
+      kind: 'capability_echo.exception_policy_changed',
+      surface: 'workflow',
+      severity: 'high',
+      file: loaded.exceptionsFile,
+      subject: 'CapabilityEcho exception policy changed',
+      message:
+        'This diff changes the CapabilityEcho exception policy; current analysis used the trusted base policy, and candidate policy changes take effect only after merge.',
+      recommendation: 'Review exception additions, removals, and widening separately from the suppressed findings they may affect.'
+    }
+  ];
+}
+
+function pathPrefixMatches(file: string | undefined, prefix: string): boolean {
+  if (!file) {
+    return false;
+  }
+
+  const fileNorm = file.replace(/\\/g, '/');
+  const prefixNorm = prefix.replace(/\\/g, '/');
+  if (!fileNorm.startsWith(prefixNorm)) {
+    return false;
+  }
+  if (fileNorm.length === prefixNorm.length || prefixNorm.endsWith('/')) {
+    return true;
+  }
+
+  return fileNorm[prefixNorm.length] === '/';
+}
+
+function isExpired(expires: string, now: Date): boolean {
+  const parsed = new Date(expires);
+  if (Number.isNaN(parsed.getTime())) {
+    return false;
+  }
+
+  return parsed.getTime() < now.getTime();
 }
 
 function normalizeExceptionPath(value: string): string | undefined {
@@ -245,10 +362,6 @@ function normalizeExceptionPath(value: string): string | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isFindingSurface(value: unknown): value is FindingSurface {
-  return value === 'source' || value === 'package' || value === 'workflow' || value === 'container';
 }
 
 function errorMessage(error: unknown): string {

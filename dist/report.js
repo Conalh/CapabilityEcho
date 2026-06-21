@@ -42,9 +42,11 @@ const SUMMARY_LABELS = {
     'capability_echo.unsafe_deserialize_added': 'unsafe deserialization',
     'capability_echo.lockfile_high_capability_dep_added': 'lockfile transitive high-capability deps',
     'capability_echo.lockfile_telemetry_dep_added': 'lockfile transitive telemetry deps',
-    'capability_echo.lockfile_install_script_added': 'lockfile transitive install scripts'
+    'capability_echo.lockfile_install_script_added': 'lockfile transitive install scripts',
+    'capability_echo.exception_expired': 'expired CapabilityEcho exceptions',
+    'capability_echo.exception_policy_changed': 'CapabilityEcho exception policy changes'
 };
-export function createReport(findings, context, exceptionSummary = { suppressedFindingCount: 0, expiredExceptionCount: 0 }) {
+export function createReport(findings, context, exceptionSummary = { suppressedFindingCount: 0, expiredExceptionCount: 0, suppressedFindings: [] }) {
     return {
         rating: rateFindings(findings),
         findingCount: findings.length,
@@ -56,6 +58,7 @@ export function createReport(findings, context, exceptionSummary = { suppressedF
         analysisDiagnostics: context.analysisDiagnostics,
         suppressedFindingCount: exceptionSummary.suppressedFindingCount,
         expiredExceptionCount: exceptionSummary.expiredExceptionCount,
+        suppressedFindings: exceptionSummary.suppressedFindings,
         surfaceSummary: buildSurfaceSummary(findings),
         severitySummary: buildSeveritySummary(findings),
         capabilitySummary: buildCapabilitySummary(findings),
@@ -87,6 +90,7 @@ export function toCanonicalReport(report) {
             analysisDiagnostics: report.analysisDiagnostics,
             suppressedFindingCount: report.suppressedFindingCount,
             expiredExceptionCount: report.expiredExceptionCount,
+            suppressedFindings: report.suppressedFindings,
             surfaceSummary: report.surfaceSummary,
             severitySummary: report.severitySummary,
             capabilitySummary: report.capabilitySummary,

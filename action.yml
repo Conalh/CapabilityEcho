@@ -40,7 +40,7 @@ inputs:
     default: ''
   exceptions-file:
     description: |
-      Repo-relative JSON exception baseline to apply from the candidate checkout/ref. Defaults to `.capabilityecho-exceptions.json` when present. Entries use the shared agent-gov-core exception shape: kind, optional salientKey/pathPrefix, expires, and reason.
+      Repo-relative JSON exception baseline to apply from the trusted base checkout/ref. Defaults to `.capabilityecho-exceptions.json` when present. Candidate-side exception changes are reported but do not take effect until merge. Entries use the shared agent-gov-core exception shape: kind, optional salientKey/pathPrefix, expires, and reason.
     required: false
     default: ''
 

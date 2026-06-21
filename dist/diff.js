@@ -37,8 +37,19 @@ export async function runCapabilityDiff(options) {
         ...lockfileFindings
     ]);
     const exceptionResult = await applyExceptionBaseline(findings, options.mode === 'directories'
-        ? { mode: 'directories', root: options.newRoot, exceptionsFile: options.exceptionsFile }
-        : { mode: 'git', repo: options.repo, head: options.head, exceptionsFile: options.exceptionsFile });
+        ? {
+            mode: 'directories',
+            trustedRoot: options.oldRoot,
+            candidateRoot: options.newRoot,
+            exceptionsFile: options.exceptionsFile
+        }
+        : {
+            mode: 'git',
+            repo: options.repo,
+            trustedRef: options.base,
+            candidateRef: options.head,
+            exceptionsFile: options.exceptionsFile
+        });
     const finalContext = {
         ...context,
         analysisIncomplete: context.analysisIncomplete || exceptionResult.diagnostics.length > 0,
@@ -46,7 +57,8 @@ export async function runCapabilityDiff(options) {
     };
     return createReport(exceptionResult.findings, finalContext, {
         suppressedFindingCount: exceptionResult.suppressedFindingCount,
-        expiredExceptionCount: exceptionResult.expiredExceptionCount
+        expiredExceptionCount: exceptionResult.expiredExceptionCount,
+        suppressedFindings: exceptionResult.suppressedFindings
     });
 }
 // Two-stage dedup:

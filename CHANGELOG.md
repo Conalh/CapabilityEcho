@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Under v1.0, minor versions may carry breaking changes.
 
+## [0.3.3] - 2026-06-21
+
+### Security
+- **Exception baselines now apply from the trusted base revision, not the candidate PR revision.** A PR can add, remove, or widen `.capabilityecho-exceptions.json`, but that candidate policy is reported as `capability_echo.exception_policy_changed` and cannot suppress findings from the same diff.
+- **Expired exceptions no longer lower the original finding severity.** When every matching exception is expired, CapabilityEcho keeps the original finding at its original severity and emits a separate low-severity `capability_echo.exception_expired` finding to explain the stale exception.
+
+### Changed
+- JSON report data now includes `suppressedFindings`, with each active suppression recording fingerprint, kind, location, reason, and expiry alongside the existing suppression counts.
+- README and Action metadata now state the Node 22+ support floor and the trusted-base exception semantics.
+
+### Verification
+- Added regression coverage for trusted-base exception application, PR-local exception self-suppression, expired-exception severity preservation, invalid exception fail-closed behavior, canonical report validation, fingerprint stability, Action suppression metadata, and Node 22/24 CI support.
+
 ## [0.3.2] — 2026-05-28
 
 ### Security

@@ -4,7 +4,7 @@ import {
   type Finding as CanonicalFinding,
   type Report as CanonicalReport,
 } from 'agent-gov-core';
-import type { AnalysisDiagnostic, DiffContext, Finding, FindingSurface, Severity } from './types.js';
+import type { AnalysisDiagnostic, DiffContext, Finding, FindingSurface, Severity, SuppressedFindingMetadata } from './types.js';
 
 export type EchoRating = 'none' | Severity;
 export type ReportFormat = 'text' | 'markdown' | 'json' | 'github';
@@ -20,6 +20,7 @@ export interface EchoReport {
   analysisDiagnostics: AnalysisDiagnostic[];
   suppressedFindingCount: number;
   expiredExceptionCount: number;
+  suppressedFindings: SuppressedFindingMetadata[];
   surfaceSummary: Record<FindingSurface, number>;
   severitySummary: Record<Severity, number>;
   capabilitySummary: string[];
@@ -73,18 +74,21 @@ const SUMMARY_LABELS: Record<string, string> = {
   'capability_echo.unsafe_deserialize_added': 'unsafe deserialization',
   'capability_echo.lockfile_high_capability_dep_added': 'lockfile transitive high-capability deps',
   'capability_echo.lockfile_telemetry_dep_added': 'lockfile transitive telemetry deps',
-  'capability_echo.lockfile_install_script_added': 'lockfile transitive install scripts'
+  'capability_echo.lockfile_install_script_added': 'lockfile transitive install scripts',
+  'capability_echo.exception_expired': 'expired CapabilityEcho exceptions',
+  'capability_echo.exception_policy_changed': 'CapabilityEcho exception policy changes'
 };
 
 export interface ExceptionReportSummary {
   suppressedFindingCount: number;
   expiredExceptionCount: number;
+  suppressedFindings: SuppressedFindingMetadata[];
 }
 
 export function createReport(
   findings: Finding[],
   context: DiffContext,
-  exceptionSummary: ExceptionReportSummary = { suppressedFindingCount: 0, expiredExceptionCount: 0 }
+  exceptionSummary: ExceptionReportSummary = { suppressedFindingCount: 0, expiredExceptionCount: 0, suppressedFindings: [] }
 ): EchoReport {
   return {
     rating: rateFindings(findings),
@@ -97,6 +101,7 @@ export function createReport(
     analysisDiagnostics: context.analysisDiagnostics,
     suppressedFindingCount: exceptionSummary.suppressedFindingCount,
     expiredExceptionCount: exceptionSummary.expiredExceptionCount,
+    suppressedFindings: exceptionSummary.suppressedFindings,
     surfaceSummary: buildSurfaceSummary(findings),
     severitySummary: buildSeveritySummary(findings),
     capabilitySummary: buildCapabilitySummary(findings),
@@ -129,6 +134,7 @@ export function toCanonicalReport(report: EchoReport): CanonicalReport {
       analysisDiagnostics: report.analysisDiagnostics,
       suppressedFindingCount: report.suppressedFindingCount,
       expiredExceptionCount: report.expiredExceptionCount,
+      suppressedFindings: report.suppressedFindings,
       surfaceSummary: report.surfaceSummary,
       severitySummary: report.severitySummary,
       capabilitySummary: report.capabilitySummary,

@@ -548,6 +548,42 @@ test('git diff exposes missing refs as setup errors', async () => {
   }
 });
 
+test('CLI ignores deleted scannable files instead of reporting head read failures', async () => {
+  const fx = await makeGitRepo({
+    prefix: 'capabilityecho-delete-',
+    initialFiles: projectFiles({
+      packageJson: { name: 'delete-fixture', private: true, scripts: { test: 'vitest' } },
+      workflow: [
+        'name: CI',
+        '',
+        'jobs:',
+        '  test:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - run: npm test'
+      ].join('\n'),
+      source: "export async function sync() {\n  await fetch('https://api.example.com/v1/events');\n}\n"
+    }),
+    initialMessage: 'base app',
+  });
+  try {
+    const base = await fx.head();
+    await fx.git('rm', 'src/client.ts');
+    await fx.git('commit', '-m', 'delete source file');
+    const head = await fx.head();
+
+    const report = await runDiff(fx.repo, base, head);
+
+    assert.equal(report.rating, 'none');
+    assert.equal(report.findings.length, 0);
+    assert.equal(report.data.changedFileCount, 0);
+    assert.equal(report.data.analysisIncomplete, false);
+    assert.deepEqual(report.data.analysisDiagnostics, []);
+  } finally {
+    await fx.cleanup();
+  }
+});
+
 test('collectGitDiff refuses refs git would re-parse as flags or object selectors', async () => {
   // The shared isValidGitRef guard rejects these before any git
   // subprocess runs (the repo path is never touched); CapabilityEcho

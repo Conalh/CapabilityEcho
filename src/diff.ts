@@ -51,8 +51,19 @@ export async function runCapabilityDiff(options: DiffMode): Promise<EchoReport> 
   const exceptionResult = await applyExceptionBaseline(
     findings,
     options.mode === 'directories'
-      ? { mode: 'directories', root: options.newRoot, exceptionsFile: options.exceptionsFile }
-      : { mode: 'git', repo: options.repo, head: options.head, exceptionsFile: options.exceptionsFile }
+      ? {
+          mode: 'directories',
+          trustedRoot: options.oldRoot,
+          candidateRoot: options.newRoot,
+          exceptionsFile: options.exceptionsFile
+        }
+      : {
+          mode: 'git',
+          repo: options.repo,
+          trustedRef: options.base,
+          candidateRef: options.head,
+          exceptionsFile: options.exceptionsFile
+        }
   );
   const finalContext = {
     ...context,
@@ -62,7 +73,8 @@ export async function runCapabilityDiff(options: DiffMode): Promise<EchoReport> 
 
   return createReport(exceptionResult.findings, finalContext, {
     suppressedFindingCount: exceptionResult.suppressedFindingCount,
-    expiredExceptionCount: exceptionResult.expiredExceptionCount
+    expiredExceptionCount: exceptionResult.expiredExceptionCount,
+    suppressedFindings: exceptionResult.suppressedFindings
   });
 }
 

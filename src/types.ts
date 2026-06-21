@@ -14,6 +14,17 @@ export interface Finding {
   exceptionReason?: string;
 }
 
+export interface SuppressedFindingMetadata {
+  fingerprint: string;
+  kind: string;
+  location: {
+    file: string;
+    line?: number;
+  };
+  reason: string;
+  expires?: string;
+}
+
 export interface AddedLine {
   file: string;
   line: number;

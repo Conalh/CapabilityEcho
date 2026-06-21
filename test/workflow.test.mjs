@@ -45,6 +45,16 @@ test('action.yml runs the checked-in JavaScript action without installing PR-loc
   assert.doesNotMatch(action, /npm run build/);
 });
 
+test('README Action example and Node support match package metadata', async () => {
+  const readme = await readFile(join(packageRoot, 'README.md'), 'utf8');
+  const packageJson = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'));
+
+  assert.match(readme, new RegExp(`uses: Conalh/CapabilityEcho@v${packageJson.version.replaceAll('.', '\\.')}`));
+  assert.equal(packageJson.engines.node, '>=22');
+  assert.match(readme, /node-%E2%89%A522/);
+  assert.match(readme, /requires Node 22 or newer/);
+});
+
 test('compiled action runtime is not ignored by git', async () => {
   const ignored = await execFileAsync('git', ['-C', packageRoot, 'check-ignore', 'dist/action.js']).then(
     () => true,
@@ -300,12 +310,25 @@ test('JavaScript action emits has-findings false for clean changed diffs', async
 });
 
 test('JavaScript action applies checked-in exceptions and emits suppression metadata', async () => {
+  const exceptions = `${JSON.stringify({
+    exceptions: [
+      {
+        kind: 'capability_echo.external_fetch_added',
+        pathPrefix: 'src/',
+        expires: '2099-01-01',
+        reason: 'approved external API migration'
+      }
+    ]
+  }, null, 2)}\n`;
   const fx = await makeGitRepo({
     prefix: 'capabilityecho-exceptions-action-',
-    initialFiles: projectFiles({
-      packageJson: { name: 'exception-action-fixture', private: true, scripts: { test: 'vitest' } },
-      source: "export function ok() {\n  return 'ok';\n}\n",
-    }),
+    initialFiles: {
+      ...projectFiles({
+        packageJson: { name: 'exception-action-fixture', private: true, scripts: { test: 'vitest' } },
+        source: "export function ok() {\n  return 'ok';\n}\n",
+      }),
+      '.capabilityecho-exceptions.json': exceptions
+    },
     initialMessage: 'base app',
   });
   const outputPath = join(fx.repo, 'github-output.txt');
@@ -319,16 +342,7 @@ test('JavaScript action applies checked-in exceptions and emits suppression meta
           packageJson: { name: 'exception-action-fixture', private: true, scripts: { test: 'vitest' } },
           source: "export async function sync() {\n  await fetch('https://api.example.com/v1/events');\n}\n",
         }),
-        '.capabilityecho-exceptions.json': `${JSON.stringify({
-          exceptions: [
-            {
-              kind: 'capability_echo.external_fetch_added',
-              pathPrefix: 'src/',
-              expires: '2099-01-01',
-              reason: 'approved external API migration'
-            }
-          ]
-        }, null, 2)}\n`
+        '.capabilityecho-exceptions.json': exceptions
       },
       'add suppressed capability drift'
     );
@@ -358,6 +372,10 @@ test('JavaScript action applies checked-in exceptions and emits suppression meta
     assert.match(outputs, /^suppressed-finding-count=1$/m);
     assert.match(outputs, /^expired-exception-count=0$/m);
     assert.equal(jsonReport.data.suppressedFindingCount, 1);
+    assert.equal(jsonReport.data.suppressedFindings.length, 1);
+    assert.equal(jsonReport.data.suppressedFindings[0].kind, 'capability_echo.external_fetch_added');
+    assert.deepEqual(jsonReport.data.suppressedFindings[0].location, { file: 'src/client.ts', line: 2 });
+    assert.equal(jsonReport.data.suppressedFindings[0].reason, 'approved external API migration');
     assert.equal(adoptionEvidence.suppressedFindingCount, 1);
     assert.match(summary, /Suppressed by active exceptions: 1/);
   } finally {

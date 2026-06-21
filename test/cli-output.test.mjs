@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { makeOldNewFixture } from 'agent-gov-core/test-utils';
+import { validateReport } from 'agent-gov-core';
 
 const execFileAsync = promisify(execFile);
 const testDir = dirname(fileURLToPath(import.meta.url));
@@ -25,7 +26,9 @@ test('CLI emits JSON capability drift report', async () => {
     { cwd: packageRoot }
   );
   const report = JSON.parse(stdout);
+  const validation = validateReport(report);
 
+  assert.equal(validation.ok, true, validation.errors.join('\n'));
   assert.equal(report.rating, 'critical');
   assert.ok(report.findings.length >= 5);
   assert.ok(report.data.changedFileCount >= 3);
@@ -48,6 +51,17 @@ test('CLI emits JSON capability drift report', async () => {
     'Use the narrowest permission scope required for this job.',
     'Review lifecycle scripts carefully; they run automatically on install.'
   ]);
+
+  const { stdout: repeatStdout } = await execFileAsync(
+    process.execPath,
+    ['dist/index.js', 'diff', '--old', oldDir, '--new', newDir, '--format', 'json'],
+    { cwd: packageRoot }
+  );
+  const repeatReport = JSON.parse(repeatStdout);
+  assert.deepEqual(
+    repeatReport.findings.map((finding) => finding.fingerprint),
+    report.findings.map((finding) => finding.fingerprint)
+  );
 });
 
 test('CLI emits Markdown capability summary', async () => {
@@ -193,22 +207,24 @@ test('CLI rejects unknown --fail-on value', async () => {
 });
 
 test('CLI applies active checked-in exceptions before fail-on', async () => {
+  const exceptions = `${JSON.stringify({
+    exceptions: [
+      {
+        kind: 'capability_echo.external_fetch_added',
+        pathPrefix: 'src/',
+        expires: '2099-01-01',
+        reason: 'approved external API migration'
+      }
+    ]
+  }, null, 2)}\n`;
   const fixture = await makeFixture(
     {
-      'src/client.ts': 'export function ok() {\n  return true;\n}\n'
+      'src/client.ts': 'export function ok() {\n  return true;\n}\n',
+      '.capabilityecho-exceptions.json': exceptions
     },
     {
       'src/client.ts': "export async function sync() {\n  await fetch('https://api.example.com/v1/events');\n}\n",
-      '.capabilityecho-exceptions.json': `${JSON.stringify({
-        exceptions: [
-          {
-            kind: 'capability_echo.external_fetch_added',
-            pathPrefix: 'src/',
-            expires: '2099-01-01',
-            reason: 'approved external API migration'
-          }
-        ]
-      }, null, 2)}\n`
+      '.capabilityecho-exceptions.json': exceptions
     }
   );
 
@@ -224,13 +240,19 @@ test('CLI applies active checked-in exceptions before fail-on', async () => {
     assert.equal(report.findings.length, 0);
     assert.equal(report.data.suppressedFindingCount, 1);
     assert.equal(report.data.expiredExceptionCount, 0);
+    assert.equal(report.data.suppressedFindings.length, 1);
+    assert.equal(report.data.suppressedFindings[0].kind, 'capability_echo.external_fetch_added');
+    assert.match(report.data.suppressedFindings[0].fingerprint, /^[a-f0-9]{16}$/);
+    assert.deepEqual(report.data.suppressedFindings[0].location, { file: 'src/client.ts', line: 2 });
+    assert.equal(report.data.suppressedFindings[0].reason, 'approved external API migration');
+    assert.equal(report.data.suppressedFindings[0].expires, '2099-01-01');
     assert.equal(report.data.analysisIncomplete, false);
   } finally {
     await fixture.cleanup();
   }
 });
 
-test('CLI surfaces expired exceptions as low-severity findings with reason metadata', async () => {
+test('CLI does not let PR-added exceptions suppress their own findings', async () => {
   const fixture = await makeFixture(
     {
       'src/client.ts': 'export function ok() {\n  return true;\n}\n'
@@ -242,8 +264,8 @@ test('CLI surfaces expired exceptions as low-severity findings with reason metad
           {
             kind: 'capability_echo.external_fetch_added',
             pathPrefix: 'src/',
-            expires: '2000-01-01',
-            reason: 'temporary rollout exception'
+            expires: '2099-01-01',
+            reason: 'untrusted PR-local exception'
           }
         ]
       }, null, 2)}\n`
@@ -251,18 +273,77 @@ test('CLI surfaces expired exceptions as low-severity findings with reason metad
   );
 
   try {
-    const { stdout } = await execFileAsync(
+    const result = await execFileAsync(
       process.execPath,
       ['dist/index.js', 'diff', '--old', fixture.oldRoot, '--new', fixture.newRoot, '--format', 'json', '--fail-on', 'medium'],
       { cwd: packageRoot }
+    ).then(
+      ({ stdout, stderr }) => ({ code: 0, stdout, stderr }),
+      (error) => ({
+        code: typeof error === 'object' && error && 'code' in error ? error.code : undefined,
+        stdout: typeof error === 'object' && error && 'stdout' in error ? String(error.stdout) : '',
+        stderr: typeof error === 'object' && error && 'stderr' in error ? String(error.stderr) : ''
+      })
     );
-    const report = JSON.parse(stdout);
+    const report = JSON.parse(result.stdout);
 
-    assert.equal(report.rating, 'low');
-    assert.equal(report.findings.length, 1);
-    assert.equal(report.findings[0].severity, 'low');
-    assert.match(report.findings[0].message, /^\[EXPIRED WHITELIST\]/);
-    assert.equal(report.findings[0].data.exceptionReason, 'temporary rollout exception');
+    assert.equal(result.code, 1);
+    assert.equal(report.rating, 'high');
+    assert.ok(report.findings.some((finding) => finding.kind === 'capability_echo.external_fetch_added'));
+    assert.ok(report.findings.some((finding) => finding.kind === 'capability_echo.exception_policy_changed'));
+    assert.equal(report.data.suppressedFindingCount, 0);
+    assert.equal(report.data.suppressedFindings.length, 0);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test('CLI keeps expired exceptions from lowering the original finding severity', async () => {
+  const exceptions = `${JSON.stringify({
+    exceptions: [
+      {
+        kind: 'capability_echo.external_fetch_added',
+        pathPrefix: 'src/',
+        expires: '2000-01-01',
+        reason: 'temporary rollout exception'
+      }
+    ]
+  }, null, 2)}\n`;
+  const fixture = await makeFixture(
+    {
+      'src/client.ts': 'export function ok() {\n  return true;\n}\n',
+      '.capabilityecho-exceptions.json': exceptions
+    },
+    {
+      'src/client.ts': "export async function sync() {\n  await fetch('https://api.example.com/v1/events');\n}\n",
+      '.capabilityecho-exceptions.json': exceptions
+    }
+  );
+
+  try {
+    const result = await execFileAsync(
+      process.execPath,
+      ['dist/index.js', 'diff', '--old', fixture.oldRoot, '--new', fixture.newRoot, '--format', 'json', '--fail-on', 'medium'],
+      { cwd: packageRoot }
+    ).then(
+      ({ stdout, stderr }) => ({ code: 0, stdout, stderr }),
+      (error) => ({
+        code: typeof error === 'object' && error && 'code' in error ? error.code : undefined,
+        stdout: typeof error === 'object' && error && 'stdout' in error ? String(error.stdout) : '',
+        stderr: typeof error === 'object' && error && 'stderr' in error ? String(error.stderr) : ''
+      })
+    );
+    const report = JSON.parse(result.stdout);
+    const original = report.findings.find((finding) => finding.kind === 'capability_echo.external_fetch_added');
+    const expired = report.findings.find((finding) => finding.kind === 'capability_echo.exception_expired');
+
+    assert.equal(result.code, 1);
+    assert.equal(report.rating, 'medium');
+    assert.equal(report.findings.length, 2);
+    assert.equal(original.severity, 'medium');
+    assert.doesNotMatch(original.message, /^\[EXPIRED WHITELIST\]/);
+    assert.equal(expired.severity, 'low');
+    assert.equal(expired.data.exceptionReason, 'temporary rollout exception');
     assert.equal(report.data.suppressedFindingCount, 0);
     assert.equal(report.data.expiredExceptionCount, 1);
   } finally {
@@ -270,21 +351,23 @@ test('CLI surfaces expired exceptions as low-severity findings with reason metad
   }
 });
 
-test('CLI keeps findings visible when exception config is invalid', async () => {
+test('CLI keeps findings visible when trusted exception config is invalid', async () => {
+  const exceptions = `${JSON.stringify({
+    exceptions: [
+      {
+        kind: 'capability_echo.external_fetch_added',
+        pathPrefix: 'src/'
+      }
+    ]
+  }, null, 2)}\n`;
   const fixture = await makeFixture(
     {
-      'src/client.ts': 'export function ok() {\n  return true;\n}\n'
+      'src/client.ts': 'export function ok() {\n  return true;\n}\n',
+      '.capabilityecho-exceptions.json': exceptions
     },
     {
       'src/client.ts': "export async function sync() {\n  await fetch('https://api.example.com/v1/events');\n}\n",
-      '.capabilityecho-exceptions.json': `${JSON.stringify({
-        exceptions: [
-          {
-            kind: 'capability_echo.external_fetch_added',
-            pathPrefix: 'src/'
-          }
-        ]
-      }, null, 2)}\n`
+      '.capabilityecho-exceptions.json': exceptions
     }
   );
 

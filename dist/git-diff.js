@@ -167,13 +167,8 @@ export async function listGitChangedFiles(repo, base, head) {
     return (await collectGitChangedFiles(repo, base, head)).files;
 }
 async function collectGitChangedFiles(repo, base, head) {
-    const { stdout } = await execFileAsync('git', ['-C', repo, 'diff', '--name-only', '-z', `${base}..${head}`], { encoding: 'buffer', maxBuffer: GIT_SHOW_MAX_BUFFER, timeout: GIT_COMMAND_TIMEOUT_MS });
-    const files = stdout
-        .toString('utf8')
-        .split('\0')
-        .filter(Boolean)
-        .map((line) => line.replace(/\\/g, '/'))
-        .sort();
+    const { stdout } = await execFileAsync('git', ['-C', repo, 'diff', '--name-status', '-z', `${base}..${head}`], { encoding: 'buffer', maxBuffer: GIT_SHOW_MAX_BUFFER, timeout: GIT_COMMAND_TIMEOUT_MS });
+    const files = parseGitNameStatus(stdout.toString('utf8')).sort();
     const diagnostics = [];
     if (files.length > MAX_GIT_CHANGED_FILES) {
         diagnostics.push({
@@ -182,6 +177,29 @@ async function collectGitChangedFiles(repo, base, head) {
         });
     }
     return { files: files.slice(0, MAX_GIT_CHANGED_FILES), diagnostics };
+}
+function parseGitNameStatus(output) {
+    const fields = output.split('\0').filter(Boolean);
+    const files = [];
+    for (let index = 0; index < fields.length;) {
+        const status = fields[index++];
+        if (!status) {
+            continue;
+        }
+        if (status.startsWith('R') || status.startsWith('C')) {
+            index += 1;
+            const newPath = fields[index++];
+            if (newPath) {
+                files.push(newPath.replace(/\\/g, '/'));
+            }
+            continue;
+        }
+        const path = fields[index++];
+        if (path && !status.startsWith('D')) {
+            files.push(path.replace(/\\/g, '/'));
+        }
+    }
+    return files;
 }
 async function runGitNoIndexDiff(oldPath, newPath) {
     try {
