@@ -1,41 +1,20 @@
-import { isRecord, lineOfJsonKey, lineOfJsonStringValue, readTextWithinRoot } from '../discovery.js';
-import { listGitChangedFiles, listPackageJsonFiles, readFileAtGitRef } from '../git-diff.js';
-import { isPackageJsonFile } from '../paths.js';
-import type { Finding } from '../types.js';
+import { isRecord, lineOfJsonKey, lineOfJsonStringValue } from '../discovery.js';
+import type { Finding, TextDiffInput } from '../types.js';
 
 const LIFECYCLE_KEYS = ['postinstall', 'preinstall', 'prepare', 'install'] as const;
 
-export type PackageDiffMode =
-  | { mode: 'directories'; oldRoot: string; newRoot: string }
-  | { mode: 'git'; repo: string; base: string; head: string };
-
-export async function detectPackageScripts(mode: PackageDiffMode): Promise<Finding[]> {
-  const packageFiles =
-    mode.mode === 'directories'
-      ? await listPackageJsonFiles(mode.newRoot)
-      : (await listChangedPackageJsonFiles(mode.repo, mode.base, mode.head));
-
+export function detectPackageScripts(files: TextDiffInput[]): Finding[] {
   const findings: Finding[] = [];
-  for (const file of packageFiles) {
-    const oldScripts = await readScriptsAt(mode, file, 'old');
-    const newScripts = await readScriptsAt(mode, file, 'new');
-    const newText = await readPackageTextAt(mode, file, 'new');
-    findings.push(...compareScripts(file, oldScripts, newScripts, newText));
+  for (const input of files) {
+    const oldScripts = readScripts(input.oldText);
+    const newScripts = readScripts(input.newText);
+    findings.push(...compareScripts(input.file, oldScripts, newScripts, input.newText));
   }
 
   return findings;
 }
 
-export async function listChangedPackageJsonFiles(repo: string, base: string, head: string): Promise<string[]> {
-  return (await listGitChangedFiles(repo, base, head)).filter(isPackageJsonFile);
-}
-
-async function readScriptsAt(
-  mode: PackageDiffMode,
-  file: string,
-  side: 'old' | 'new'
-): Promise<Record<string, string>> {
-  const text = await readPackageTextAt(mode, file, side);
+function readScripts(text: string): Record<string, string> {
   if (!text) {
     return {};
   }
@@ -56,16 +35,6 @@ async function readScriptsAt(
   } catch {
     return {};
   }
-}
-
-export async function readPackageTextAt(mode: PackageDiffMode, file: string, side: 'old' | 'new'): Promise<string> {
-  if (mode.mode === 'directories') {
-    const root = side === 'old' ? mode.oldRoot : mode.newRoot;
-    return (await readTextWithinRoot(root, file)).text;
-  }
-
-  const ref = side === 'old' ? mode.base : mode.head;
-  return (await readFileAtGitRef(mode.repo, ref, file)) ?? '';
 }
 
 function compareScripts(

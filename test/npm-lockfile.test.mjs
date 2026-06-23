@@ -5,6 +5,7 @@ import { symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { detectNpmLockfile } from '../dist/detectors/npm-lockfile.js';
+import { runCapabilityDiff } from '../dist/diff.js';
 import { makeOldNewFixture } from 'agent-gov-core/test-utils';
 
 function buildLockfile(packages) {
@@ -36,11 +37,13 @@ function buildLockfileV1(dependencies) {
 }
 
 async function makeFixture(oldPackages, newPackages) {
+  const oldText = buildLockfile(oldPackages);
+  const newText = buildLockfile(newPackages);
   const fx = await makeOldNewFixture({
-    old: { 'package-lock.json': buildLockfile(oldPackages) },
-    new: { 'package-lock.json': buildLockfile(newPackages) }
+    old: { 'package-lock.json': oldText },
+    new: { 'package-lock.json': newText }
   });
-  return { oldRoot: fx.old, newRoot: fx.new, cleanup: fx.cleanup };
+  return { oldRoot: fx.old, newRoot: fx.new, inputs: [{ file: 'package-lock.json', oldText, newText }], cleanup: fx.cleanup };
 }
 
 async function makeLockfileTextFixture(oldText, newText) {
@@ -48,7 +51,7 @@ async function makeLockfileTextFixture(oldText, newText) {
     old: { 'package-lock.json': oldText },
     new: { 'package-lock.json': newText }
   });
-  return { oldRoot: fx.old, newRoot: fx.new, cleanup: fx.cleanup };
+  return { oldRoot: fx.old, newRoot: fx.new, inputs: [{ file: 'package-lock.json', oldText, newText }], cleanup: fx.cleanup };
 }
 
 test('flags transitive high-capability dep added to package-lock.json', async () => {
@@ -61,7 +64,7 @@ test('flags transitive high-capability dep added to package-lock.json', async ()
     }
   );
   try {
-    const findings = await detectNpmLockfile({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
+    const findings = detectNpmLockfile(fixture.inputs);
     const f = findings.find((finding) => finding.subject === 'node-fetch');
     assert.ok(f);
     assert.equal(f.kind, 'capability_echo.lockfile_high_capability_dep_added');
@@ -80,7 +83,7 @@ test('flags scoped transitive deps correctly', async () => {
     }
   );
   try {
-    const findings = await detectNpmLockfile({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
+    const findings = detectNpmLockfile(fixture.inputs);
     const f = findings.find((finding) => finding.subject === '@sentry/node');
     assert.ok(f);
     assert.equal(f.kind, 'capability_echo.lockfile_telemetry_dep_added');
@@ -99,7 +102,7 @@ test('flags newly-added package that declares an install script', async () => {
     }
   );
   try {
-    const findings = await detectNpmLockfile({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
+    const findings = detectNpmLockfile(fixture.inputs);
     const f = findings.find((finding) => finding.kind === 'capability_echo.lockfile_install_script_added');
     assert.ok(f);
     assert.equal(f.subject, 'native-thing');
@@ -121,7 +124,7 @@ test('flags changed high-capability transitive deps', async () => {
     }
   );
   try {
-    const findings = await detectNpmLockfile({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
+    const findings = detectNpmLockfile(fixture.inputs);
     const f = findings.find((finding) => finding.subject === 'node-fetch');
     assert.ok(f, 'high-capability lockfile version changes should be re-reviewed');
     assert.equal(f.kind, 'capability_echo.lockfile_high_capability_dep_added');
@@ -142,7 +145,7 @@ test('does not flag unchanged pre-existing transitive deps', async () => {
     }
   );
   try {
-    const findings = await detectNpmLockfile({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
+    const findings = detectNpmLockfile(fixture.inputs);
     assert.equal(findings.length, 0);
   } finally {
     await fixture.cleanup();
@@ -161,7 +164,7 @@ test('flags install script added to an existing lockfile package', async () => {
     }
   );
   try {
-    const findings = await detectNpmLockfile({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
+    const findings = detectNpmLockfile(fixture.inputs);
     const f = findings.find((finding) => finding.kind === 'capability_echo.lockfile_install_script_added');
     assert.ok(f, 'install-script flips should not be hidden by stable lockfile paths');
     assert.equal(f.subject, 'native-thing');
@@ -181,7 +184,7 @@ test('flags high-capability deps in package-lock v1 dependency maps', async () =
     })
   );
   try {
-    const findings = await detectNpmLockfile({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
+    const findings = detectNpmLockfile(fixture.inputs);
     const f = findings.find((finding) => finding.subject === 'node-fetch');
     assert.ok(f, 'lockfile v1 dependencies should be scanned');
     assert.equal(f.kind, 'capability_echo.lockfile_high_capability_dep_added');
@@ -199,7 +202,7 @@ test('skips non-node_modules entries and the root package', async () => {
     }
   );
   try {
-    const findings = await detectNpmLockfile({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
+    const findings = detectNpmLockfile(fixture.inputs);
     assert.equal(findings.length, 0);
   } finally {
     await fixture.cleanup();
@@ -220,7 +223,7 @@ test('annotates the lockfile key line', async () => {
     const text = await readFile(join(fixture.newRoot, 'package-lock.json'), 'utf8');
     const keyLine = text.split(/\r?\n/).findIndex((l) => l.includes('"node_modules/puppeteer"')) + 1;
 
-    const findings = await detectNpmLockfile({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
+    const findings = detectNpmLockfile(fixture.inputs);
     const f = findings.find((finding) => finding.subject === 'puppeteer');
     assert.ok(f);
     assert.equal(f.line, keyLine);
@@ -253,8 +256,8 @@ test('directory mode does not follow symlinked npm lockfiles', async (t) => {
       return;
     }
 
-    const findings = await detectNpmLockfile({ mode: 'directories', oldRoot, newRoot });
-    assert.equal(findings.length, 0, 'symlinked lockfile outside the tree must not be scanned');
+    const report = await runCapabilityDiff({ mode: 'directories', oldRoot, newRoot });
+    assert.equal(report.findings.length, 0, 'symlinked lockfile outside the tree must not be scanned');
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -10,6 +10,7 @@ import { detectWorkflowPermissions } from './detectors/workflow-permissions.js';
 import { detectWorkflowStructure } from './detectors/workflow-structure.js';
 import { applyExceptionBaseline } from './exceptions.js';
 import { collectDirectoryDiff, collectGitDiff } from './git-diff.js';
+import { collectNpmLockfileDiffs, collectPackageJsonDiffs, collectPythonManifestDiffs } from './manifest-diff.js';
 import { createReport, type EchoReport } from './report.js';
 import type { Finding } from './types.js';
 
@@ -23,17 +24,20 @@ export async function runCapabilityDiff(options: DiffMode): Promise<EchoReport> 
       ? await collectDirectoryDiff(options.oldRoot, options.newRoot)
       : await collectGitDiff(options.repo, options.base, options.head);
 
-  const packageMode =
+  const textDiffMode =
     options.mode === 'directories'
       ? ({ mode: 'directories' as const, oldRoot: options.oldRoot, newRoot: options.newRoot })
       : ({ mode: 'git' as const, repo: options.repo, base: options.base, head: options.head });
 
-  const [scriptFindings, depFindings, pythonDepFindings, lockfileFindings] = await Promise.all([
-    detectPackageScripts(packageMode),
-    detectPackageDeps(packageMode),
-    detectPythonDeps(packageMode),
-    detectNpmLockfile(packageMode)
+  const [packageJsonDiffs, pythonManifestDiffs, npmLockfileDiffs] = await Promise.all([
+    collectPackageJsonDiffs(textDiffMode),
+    collectPythonManifestDiffs(textDiffMode),
+    collectNpmLockfileDiffs(textDiffMode)
   ]);
+  const scriptFindings = detectPackageScripts(packageJsonDiffs);
+  const depFindings = detectPackageDeps(packageJsonDiffs);
+  const pythonDepFindings = detectPythonDeps(pythonManifestDiffs);
+  const lockfileFindings = detectNpmLockfile(npmLockfileDiffs);
 
   const findings = dedupeFindings([
     ...detectWorkflowStructure(context.addedLines, context.newFileContents),

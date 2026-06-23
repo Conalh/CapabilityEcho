@@ -1,44 +1,11 @@
 import { isRecord, lineOfJsonKey } from '../discovery.js';
-import { listSafeFiles, readTextWithinRoot } from '../discovery.js';
-import { listGitChangedFiles, readFileAtGitRef } from '../git-diff.js';
-import { isNpmLockfile } from '../paths.js';
-// Lockfile coverage catches *transitive* capability drift that direct
-// package.json scanning misses. A child upgrade can pull `node-fetch`
-// into the tree without touching the manifest at all.
-const HIGH_CAPABILITY_DEPS = new Set([
-    'puppeteer', 'puppeteer-core', 'playwright', 'playwright-core',
-    'cypress', 'webdriverio', 'selenium-webdriver', 'nightwatch',
-    'execa', 'cross-spawn', 'node-pty', 'shelljs', 'zx', 'tinyspawn',
-    'node-fetch', 'undici', 'got', 'axios', 'request', 'superagent',
-    'vm2', 'isolated-vm',
-    'socks-proxy-agent', 'https-proxy-agent', 'ssh2', 'node-ssh',
-]);
-const TELEMETRY_DEPS = new Set([
-    '@segment/analytics-node', 'mixpanel', 'amplitude-js', 'posthog-js',
-    '@sentry/node', '@sentry/browser',
-]);
-export async function detectNpmLockfile(mode) {
-    const files = mode.mode === 'directories'
-        ? await listLockfilesInTree(mode.newRoot)
-        : (await listGitChangedFiles(mode.repo, mode.base, mode.head)).filter(isNpmLockfile);
+import { HIGH_CAPABILITY_JS_DEPS, TELEMETRY_JS_DEPS } from './js-package-risk.js';
+export function detectNpmLockfile(files) {
     const findings = [];
-    for (const file of files) {
-        const oldText = await readLockfileAt(mode, file, 'old');
-        const newText = await readLockfileAt(mode, file, 'new');
-        findings.push(...compareLockfile(file, oldText, newText));
+    for (const input of files) {
+        findings.push(...compareLockfile(input.file, input.oldText, input.newText));
     }
     return findings;
-}
-async function listLockfilesInTree(root) {
-    return (await listSafeFiles(root, { includeFile: isNpmLockfile })).files;
-}
-async function readLockfileAt(mode, file, side) {
-    if (mode.mode === 'directories') {
-        const root = side === 'old' ? mode.oldRoot : mode.newRoot;
-        return (await readTextWithinRoot(root, file)).text;
-    }
-    const ref = side === 'old' ? mode.base : mode.head;
-    return (await readFileAtGitRef(mode.repo, ref, file)) ?? '';
 }
 function compareLockfile(file, oldText, newText) {
     const oldEntries = readPackagesMap(oldText);
@@ -54,7 +21,7 @@ function compareLockfile(file, oldText, newText) {
             continue;
         }
         const line = lineOfJsonKey(newText, entry.locatorKey);
-        if ((introduced || metadataChanged) && HIGH_CAPABILITY_DEPS.has(entry.name)) {
+        if ((introduced || metadataChanged) && HIGH_CAPABILITY_JS_DEPS.has(entry.name)) {
             findings.push({
                 kind: 'capability_echo.lockfile_high_capability_dep_added',
                 surface: 'package',
@@ -66,7 +33,7 @@ function compareLockfile(file, oldText, newText) {
                 recommendation: 'Verify the upstream change that introduced this transitive dep is intentional and trusted.'
             });
         }
-        else if ((introduced || metadataChanged) && TELEMETRY_DEPS.has(entry.name)) {
+        else if ((introduced || metadataChanged) && TELEMETRY_JS_DEPS.has(entry.name)) {
             findings.push({
                 kind: 'capability_echo.lockfile_telemetry_dep_added',
                 surface: 'package',

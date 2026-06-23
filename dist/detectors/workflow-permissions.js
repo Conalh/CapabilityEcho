@@ -1,5 +1,5 @@
 import { isCommentLine, isWorkflowFile, isWorkflowLikeFile } from '../paths.js';
-const githubTokenWritePermissionPattern = /^\s*(?:actions|artifact-metadata|attestations|checks|code-quality|contents|deployments|discussions|id-token|issues|packages|pages|pull-requests|security-events|statuses)\s*:\s*write\b/i;
+import { extractWorkflowUsesRef, hasDockerSocketMount, hasPrivilegedDockerRun, hasPullRequestTargetWorkflow, isBroadWritePermission, isMutableActionRef, isPullRequestTargetLine, isWritePermissionLine, referencesExternalRequestCommand, referencesExternalUrlOrVariable, referencesPullRequestHead, referencesShellVariable } from './workflow-rules.js';
 export function detectWorkflowPermissions(lines, newFileContents = {}) {
     const findings = [];
     const pullRequestTargetFiles = new Set(lines.filter((line) => isWorkflowFile(line.file) && isPullRequestTargetLine(line.content)).map((line) => line.file));
@@ -56,10 +56,10 @@ function addSecretEnvVar(varsByFile, file, content) {
 }
 function detectWritePermissions(added) {
     const content = added.content;
-    if (!/permissions\s*:/i.test(content) && !githubTokenWritePermissionPattern.test(content)) {
+    if (!/permissions\s*:/i.test(content) && !isWritePermissionLine(content)) {
         return [];
     }
-    if (githubTokenWritePermissionPattern.test(content)) {
+    if (isWritePermissionLine(content)) {
         return [
             {
                 kind: 'capability_echo.workflow_permission_write',
@@ -73,7 +73,8 @@ function detectWritePermissions(added) {
             }
         ];
     }
-    if (/^\s*permissions\s*:\s*(?:write|write-all|admin)\b/i.test(content)) {
+    const broadPermission = content.match(/^\s*permissions\s*:\s*([^\s#]+)/i)?.[1];
+    if (broadPermission && isBroadWritePermission(broadPermission)) {
         return [
             {
                 kind: 'capability_echo.workflow_permission_write',
@@ -123,20 +124,6 @@ function detectPullRequestHeadCheckoutOnTarget(added, hasPullRequestTarget) {
         }
     ];
 }
-function isPullRequestTargetLine(content) {
-    return /^\s*pull_request_target\s*:/i.test(content);
-}
-function hasPullRequestTargetWorkflow(content) {
-    return content.split(/\r?\n/).some(isPullRequestTargetLine);
-}
-function referencesPullRequestHead(content) {
-    if (/github\.event\.pull_request\.head\.(?:sha|ref|repo\.full_name|repo\.clone_url)/i.test(content)) {
-        return true;
-    }
-    // refs/pull/<n>/merge resolves to PR-authored code merged into base; running
-    // it under pull_request_target gives untrusted PR code elevated context.
-    return /\brefs\/pull\/.+?\/merge\b/i.test(content);
-}
 function detectSelfHostedRunner(added) {
     if (!/^\s*runs-on\s*:\s*(?:.*\bself-hosted\b|.*\[\s*self-hosted\b)/i.test(added.content) &&
         !/^\s*-\s*self-hosted\s*(?:#.*)?$/i.test(added.content)) {
@@ -157,15 +144,7 @@ function detectSelfHostedRunner(added) {
 }
 function detectMutableActionRef(added) {
     const actionRef = extractWorkflowUsesRef(added.content);
-    if (!actionRef || isLocalActionRef(actionRef) || /^docker:\/\//i.test(actionRef)) {
-        return [];
-    }
-    const refSeparatorIndex = actionRef.lastIndexOf('@');
-    if (refSeparatorIndex === -1) {
-        return [];
-    }
-    const versionRef = actionRef.slice(refSeparatorIndex + 1);
-    if (!isMutableActionVersionRef(versionRef)) {
+    if (!actionRef || !isMutableActionRef(actionRef)) {
         return [];
     }
     return [
@@ -181,17 +160,8 @@ function detectMutableActionRef(added) {
         }
     ];
 }
-function extractWorkflowUsesRef(content) {
-    return content.match(/^\s*(?:-\s*)?uses\s*:\s*['"]?([^'"\s#]+)['"]?/i)?.[1];
-}
-function isLocalActionRef(actionRef) {
-    return actionRef.startsWith('./') || actionRef.startsWith('../') || actionRef.startsWith('/');
-}
-function isMutableActionVersionRef(versionRef) {
-    return !/^[0-9a-f]{40}$/i.test(versionRef);
-}
 function detectExternalCurl(added) {
-    if (!/\b(curl|wget|Invoke-WebRequest|fetch\s*\()/i.test(added.content)) {
+    if (!referencesExternalRequestCommand(added.content)) {
         return [];
     }
     if (!referencesExternalUrlOrVariable(added.content)) {
@@ -209,21 +179,6 @@ function detectExternalCurl(added) {
             recommendation: 'Verify the URL, payload, and whether the request is necessary in CI.'
         }
     ];
-}
-function referencesExternalUrlOrVariable(content) {
-    const urls = content.match(/https?:\/\/[^\s'"`)]+/gi) ?? [];
-    for (const url of urls) {
-        if (!isLocalUrl(url)) {
-            return true;
-        }
-    }
-    if (urls.length === 0 && /\$\{?\w|\$\{\{/.test(content)) {
-        return true;
-    }
-    return false;
-}
-function isLocalUrl(url) {
-    return /^https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::\d+)?(?:[/?#]|$)/i.test(url);
 }
 function detectSecretsInherit(added) {
     if (!/^\s*secrets\s*:\s*inherit\s*(?:#.*)?$/i.test(added.content)) {
@@ -246,8 +201,7 @@ function detectSecretExfil(added, secretEnvVars) {
     const content = added.content;
     const hasSecretRef = /\$\{\{\s*secrets\.|\$\{?\s*secrets\.|env\.[A-Z0-9_]+/i.test(content) ||
         [...secretEnvVars].some((name) => referencesShellVariable(content, name));
-    const hasNetwork = /\b(curl|wget|Invoke-WebRequest|fetch\s*\()/i.test(content);
-    const hasPipe = /\|\s*(bash|sh|powershell|pwsh)/i.test(content);
+    const hasNetwork = referencesExternalRequestCommand(content);
     if (!hasSecretRef || !hasNetwork) {
         return [];
     }
@@ -259,22 +213,15 @@ function detectSecretExfil(added, secretEnvVars) {
             file: added.file,
             line: added.line,
             subject: 'Workflow secret exfiltration pattern',
-            message: 'Workflow step references secrets or env values alongside an external request or shell pipe.',
+            message: 'Workflow step references secrets or env values alongside an external request.',
             recommendation: 'Review whether secrets could leave the runner through this step.'
         }
     ];
 }
-function referencesShellVariable(content, name) {
-    const escapedName = escapeRegExp(name);
-    return new RegExp(String.raw `(?:\$\{${escapedName}\}|\$${escapedName}\b|%${escapedName}%)`).test(content);
-}
-function escapeRegExp(value) {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 function detectDockerHostControl(added) {
     const findings = [];
     const content = added.content;
-    if (/\/var\/run\/docker\.sock(?::\/var\/run\/docker\.sock)?/i.test(content)) {
+    if (hasDockerSocketMount(content)) {
         findings.push({
             kind: 'capability_echo.workflow_docker_socket_mount',
             surface: 'workflow',
@@ -286,7 +233,7 @@ function detectDockerHostControl(added) {
             recommendation: 'Avoid Docker socket mounts in CI unless the job is isolated and the image/commands are trusted.'
         });
     }
-    if (/\bdocker\s+run\b.*\s--privileged(?:\s|$)/i.test(content)) {
+    if (hasPrivilegedDockerRun(content)) {
         findings.push({
             kind: 'capability_echo.workflow_privileged_container',
             surface: 'workflow',

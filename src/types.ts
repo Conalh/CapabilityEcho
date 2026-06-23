@@ -31,6 +31,12 @@ export interface AddedLine {
   content: string;
 }
 
+export interface TextDiffInput {
+  file: string;
+  oldText: string;
+  newText: string;
+}
+
 export type AnalysisDiagnosticKind =
   | 'skipped_symlink'
   | 'skipped_oversized'

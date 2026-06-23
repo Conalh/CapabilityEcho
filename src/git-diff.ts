@@ -3,7 +3,7 @@ import { relative } from 'node:path';
 import { promisify } from 'node:util';
 import { isValidGitRef, resolveWithinRoot } from 'agent-gov-core';
 import { listSafeFiles, readTextWithinRoot } from './discovery.js';
-import { hasShellShebang, isPackageJsonFile, isPotentialShebangScript, isScannable, surfaceForPath } from './paths.js';
+import { hasShellShebang, isPotentialShebangScript, isScannable, surfaceForPath } from './paths.js';
 import type { AddedLine, AnalysisDiagnostic, DiffContext, FindingSurface } from './types.js';
 
 const execFileAsync = promisify(execFile);
@@ -380,10 +380,6 @@ async function readChangedFilesAtRef(
   );
 
   return { contents, diagnostics };
-}
-
-export async function listPackageJsonFiles(root: string): Promise<string[]> {
-  return (await listSafeFiles(root, { includeFile: isPackageJsonFile })).files;
 }
 
 export function relativeFromRoots(root: string, absolutePath: string): string {

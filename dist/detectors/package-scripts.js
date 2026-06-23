@@ -1,25 +1,15 @@
-import { isRecord, lineOfJsonKey, lineOfJsonStringValue, readTextWithinRoot } from '../discovery.js';
-import { listGitChangedFiles, listPackageJsonFiles, readFileAtGitRef } from '../git-diff.js';
-import { isPackageJsonFile } from '../paths.js';
+import { isRecord, lineOfJsonKey, lineOfJsonStringValue } from '../discovery.js';
 const LIFECYCLE_KEYS = ['postinstall', 'preinstall', 'prepare', 'install'];
-export async function detectPackageScripts(mode) {
-    const packageFiles = mode.mode === 'directories'
-        ? await listPackageJsonFiles(mode.newRoot)
-        : (await listChangedPackageJsonFiles(mode.repo, mode.base, mode.head));
+export function detectPackageScripts(files) {
     const findings = [];
-    for (const file of packageFiles) {
-        const oldScripts = await readScriptsAt(mode, file, 'old');
-        const newScripts = await readScriptsAt(mode, file, 'new');
-        const newText = await readPackageTextAt(mode, file, 'new');
-        findings.push(...compareScripts(file, oldScripts, newScripts, newText));
+    for (const input of files) {
+        const oldScripts = readScripts(input.oldText);
+        const newScripts = readScripts(input.newText);
+        findings.push(...compareScripts(input.file, oldScripts, newScripts, input.newText));
     }
     return findings;
 }
-export async function listChangedPackageJsonFiles(repo, base, head) {
-    return (await listGitChangedFiles(repo, base, head)).filter(isPackageJsonFile);
-}
-async function readScriptsAt(mode, file, side) {
-    const text = await readPackageTextAt(mode, file, side);
+function readScripts(text) {
     if (!text) {
         return {};
     }
@@ -39,14 +29,6 @@ async function readScriptsAt(mode, file, side) {
     catch {
         return {};
     }
-}
-export async function readPackageTextAt(mode, file, side) {
-    if (mode.mode === 'directories') {
-        const root = side === 'old' ? mode.oldRoot : mode.newRoot;
-        return (await readTextWithinRoot(root, file)).text;
-    }
-    const ref = side === 'old' ? mode.base : mode.head;
-    return (await readFileAtGitRef(mode.repo, ref, file)) ?? '';
 }
 function compareScripts(file, oldScripts, newScripts, newText) {
     const findings = [];

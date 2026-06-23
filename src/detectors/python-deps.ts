@@ -1,10 +1,7 @@
 import { parseToml, lineOfTomlKey } from 'agent-gov-core';
-import { listSafeFiles, readTextWithinRoot } from '../discovery.js';
-import { listGitChangedFiles, readFileAtGitRef } from '../git-diff.js';
-import { isPythonManifestFile } from '../paths.js';
-import type { Finding } from '../types.js';
+import type { Finding, TextDiffInput } from '../types.js';
 
-// Python-side equivalent of HIGH_CAPABILITY_DEPS in package-deps.
+// Python-side equivalent of the JS package risk list.
 // Adding any of these is, by itself, capability expansion: the agent
 // gets a network, subprocess, browser-automation, or RCE-shaped primitive
 // transitively, even if the call site isn't in the diff.
@@ -27,51 +24,13 @@ const TELEMETRY_PY_DEPS = new Set<string>([
   'rollbar', 'bugsnag',
 ]);
 
-export type PythonManifestDiffMode =
-  | { mode: 'directories'; oldRoot: string; newRoot: string }
-  | { mode: 'git'; repo: string; base: string; head: string };
-
-export async function detectPythonDeps(mode: PythonManifestDiffMode): Promise<Finding[]> {
-  const files =
-    mode.mode === 'directories'
-      ? await listPythonManifestFiles(mode.newRoot)
-      : await listChangedPythonManifestFiles(mode.repo, mode.base, mode.head);
-
+export function detectPythonDeps(files: TextDiffInput[]): Finding[] {
   const findings: Finding[] = [];
-  for (const file of files) {
-    const oldText = await readManifestTextAt(mode, file, 'old');
-    const newText = await readManifestTextAt(mode, file, 'new');
-    findings.push(...compareManifest(file, oldText, newText));
+  for (const input of files) {
+    findings.push(...compareManifest(input.file, input.oldText, input.newText));
   }
 
   return findings;
-}
-
-async function listPythonManifestFiles(root: string): Promise<string[]> {
-  return (
-    await listSafeFiles(root, {
-      includeFile: isPythonManifestFile,
-      excludedDirs: ['node_modules', '.git', '.venv', 'venv']
-    })
-  ).files;
-}
-
-async function listChangedPythonManifestFiles(repo: string, base: string, head: string): Promise<string[]> {
-  return (await listGitChangedFiles(repo, base, head)).filter(isPythonManifestFile);
-}
-
-async function readManifestTextAt(
-  mode: PythonManifestDiffMode,
-  file: string,
-  side: 'old' | 'new'
-): Promise<string> {
-  if (mode.mode === 'directories') {
-    const root = side === 'old' ? mode.oldRoot : mode.newRoot;
-    return (await readTextWithinRoot(root, file)).text;
-  }
-
-  const ref = side === 'old' ? mode.base : mode.head;
-  return (await readFileAtGitRef(mode.repo, ref, file)) ?? '';
 }
 
 interface PyDep {

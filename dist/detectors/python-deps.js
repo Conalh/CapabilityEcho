@@ -1,8 +1,5 @@
 import { parseToml, lineOfTomlKey } from 'agent-gov-core';
-import { listSafeFiles, readTextWithinRoot } from '../discovery.js';
-import { listGitChangedFiles, readFileAtGitRef } from '../git-diff.js';
-import { isPythonManifestFile } from '../paths.js';
-// Python-side equivalent of HIGH_CAPABILITY_DEPS in package-deps.
+// Python-side equivalent of the JS package risk list.
 // Adding any of these is, by itself, capability expansion: the agent
 // gets a network, subprocess, browser-automation, or RCE-shaped primitive
 // transitively, even if the call site isn't in the diff.
@@ -23,34 +20,12 @@ const TELEMETRY_PY_DEPS = new Set([
     'newrelic', 'segment-analytics-python', 'posthog', 'mixpanel',
     'rollbar', 'bugsnag',
 ]);
-export async function detectPythonDeps(mode) {
-    const files = mode.mode === 'directories'
-        ? await listPythonManifestFiles(mode.newRoot)
-        : await listChangedPythonManifestFiles(mode.repo, mode.base, mode.head);
+export function detectPythonDeps(files) {
     const findings = [];
-    for (const file of files) {
-        const oldText = await readManifestTextAt(mode, file, 'old');
-        const newText = await readManifestTextAt(mode, file, 'new');
-        findings.push(...compareManifest(file, oldText, newText));
+    for (const input of files) {
+        findings.push(...compareManifest(input.file, input.oldText, input.newText));
     }
     return findings;
-}
-async function listPythonManifestFiles(root) {
-    return (await listSafeFiles(root, {
-        includeFile: isPythonManifestFile,
-        excludedDirs: ['node_modules', '.git', '.venv', 'venv']
-    })).files;
-}
-async function listChangedPythonManifestFiles(repo, base, head) {
-    return (await listGitChangedFiles(repo, base, head)).filter(isPythonManifestFile);
-}
-async function readManifestTextAt(mode, file, side) {
-    if (mode.mode === 'directories') {
-        const root = side === 'old' ? mode.oldRoot : mode.newRoot;
-        return (await readTextWithinRoot(root, file)).text;
-    }
-    const ref = side === 'old' ? mode.base : mode.head;
-    return (await readFileAtGitRef(mode.repo, ref, file)) ?? '';
 }
 function compareManifest(file, oldText, newText) {
     const oldDeps = readManifestDeps(file, oldText);

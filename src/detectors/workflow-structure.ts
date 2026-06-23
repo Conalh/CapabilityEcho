@@ -11,6 +11,16 @@ import {
 } from '../workflow-yaml.js';
 import { isWorkflowFile } from '../paths.js';
 import type { AddedLine, Finding } from '../types.js';
+import {
+  hasDockerSocketMount,
+  hasPrivilegedDockerRun,
+  isBroadWritePermission,
+  isMutableActionRef,
+  isWritePermissionScope,
+  referencesExternalRequest,
+  referencesPullRequestHead,
+  referencesShellVariable
+} from './workflow-rules.js';
 
 // Structural workflow analysis. Complements the per-line detector in
 // workflow-permissions.ts: this pass parses the YAML AST so it can reason
@@ -260,9 +270,7 @@ function analyseStep(
       const hasExternalRequest = referencesExternalRequest(runText);
       const referencesStepEnvSecret = [...effectiveSecretEnv].some((name) => referencesShellVariable(runText, name));
       const referencesInlineSecret = /\$\{\{\s*secrets\./i.test(runText);
-      const hasPipeToShell = /\|\s*(bash|sh|powershell|pwsh)/i.test(runText);
-
-      if (hasExternalRequest && (referencesStepEnvSecret || referencesInlineSecret || hasPipeToShell)) {
+      if (hasExternalRequest && (referencesStepEnvSecret || referencesInlineSecret)) {
         findings.push({
           kind: 'capability_echo.workflow_secret_exfil_pattern',
           surface: 'workflow',
@@ -270,12 +278,12 @@ function analyseStep(
           file,
           line,
           subject: `Workflow secret exfiltration pattern (${jobName})`,
-          message: 'Step run command combines secrets or env values with an external request or shell pipe.',
+          message: 'Step run command combines secrets or env values with an external request.',
           recommendation: 'Review whether secrets could leave the runner through this step.'
         });
       }
 
-      if (/\/var\/run\/docker\.sock(?::\/var\/run\/docker\.sock)?/i.test(runText)) {
+      if (hasDockerSocketMount(runText)) {
         findings.push({
           kind: 'capability_echo.workflow_docker_socket_mount',
           surface: 'workflow',
@@ -288,7 +296,7 @@ function analyseStep(
         });
       }
 
-      if (/\bdocker\s+run\b.*\s--privileged(?:\s|$)/i.test(runText)) {
+      if (hasPrivilegedDockerRun(runText)) {
         findings.push({
           kind: 'capability_echo.workflow_privileged_container',
           surface: 'workflow',
@@ -318,7 +326,7 @@ function permissionFindings(
 
   // Top-level grant: `permissions: write-all` / `permissions: write`.
   const scalar = scalarValue(value);
-  if (scalar && /^(?:write|write-all|admin)$/i.test(scalar)) {
+  if (scalar && isBroadWritePermission(scalar)) {
     const line = lineOfNode(pair as Pair, lc);
     findings.push({
       kind:
@@ -346,19 +354,13 @@ function permissionFindings(
     return findings;
   }
 
-  const writeScopes = new Set([
-    'actions', 'artifact-metadata', 'attestations', 'checks', 'code-quality', 'contents',
-    'deployments', 'discussions', 'id-token', 'issues', 'packages', 'pages',
-    'pull-requests', 'security-events', 'statuses',
-  ]);
-
   for (const perm of (value as YAMLMap).items) {
     const key = scalarKey(perm);
     const val = scalarValue(perm.value);
     if (!key || !val) {
       continue;
     }
-    if (!writeScopes.has(key.toLowerCase())) {
+    if (!isWritePermissionScope(key)) {
       continue;
     }
     if (val.toLowerCase() !== 'write') {
@@ -468,50 +470,6 @@ function referencesSelfHosted(value: unknown): boolean {
     }
   }
   return false;
-}
-
-function referencesPullRequestHead(content: string): boolean {
-  if (/github\.event\.pull_request\.head\.(?:sha|ref|repo\.full_name|repo\.clone_url)/i.test(content)) {
-    return true;
-  }
-  return /\brefs\/pull\/.+?\/merge\b/i.test(content);
-}
-
-function isMutableActionRef(ref: string): boolean {
-  if (ref.startsWith('./') || ref.startsWith('../') || ref.startsWith('/')) {
-    return false;
-  }
-  if (/^docker:\/\//i.test(ref)) {
-    return false;
-  }
-  const at = ref.lastIndexOf('@');
-  if (at < 0) {
-    return false;
-  }
-  const versionRef = ref.slice(at + 1);
-  return /^(main|master|trunk|develop|dev|latest|head)$/i.test(versionRef);
-}
-
-function referencesExternalRequest(content: string): boolean {
-  if (!/\b(curl|wget|Invoke-WebRequest|fetch\s*\()/i.test(content)) {
-    return false;
-  }
-  const urls = content.match(/https?:\/\/[^\s'"`)]+/gi) ?? [];
-  for (const url of urls) {
-    if (!isLocalUrl(url)) {
-      return true;
-    }
-  }
-  return urls.length === 0 && /\$\{?\w|\$\{\{/.test(content);
-}
-
-function isLocalUrl(url: string): boolean {
-  return /^https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::\d+)?(?:[/?#]|$)/i.test(url);
-}
-
-function referencesShellVariable(content: string, name: string): boolean {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(String.raw`(?:\$\{${escaped}\}|\$${escaped}\b|%${escaped}%)`).test(content);
 }
 
 function pairByKey(map: YAMLMap, key: string): Pair | undefined {

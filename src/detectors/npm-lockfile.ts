@@ -1,62 +1,14 @@
 import { isRecord, lineOfJsonKey } from '../discovery.js';
-import { listSafeFiles, readTextWithinRoot } from '../discovery.js';
-import { listGitChangedFiles, readFileAtGitRef } from '../git-diff.js';
-import { isNpmLockfile } from '../paths.js';
-import type { Finding } from '../types.js';
+import type { Finding, TextDiffInput } from '../types.js';
+import { HIGH_CAPABILITY_JS_DEPS, TELEMETRY_JS_DEPS } from './js-package-risk.js';
 
-// Lockfile coverage catches *transitive* capability drift that direct
-// package.json scanning misses. A child upgrade can pull `node-fetch`
-// into the tree without touching the manifest at all.
-const HIGH_CAPABILITY_DEPS = new Set<string>([
-  'puppeteer', 'puppeteer-core', 'playwright', 'playwright-core',
-  'cypress', 'webdriverio', 'selenium-webdriver', 'nightwatch',
-  'execa', 'cross-spawn', 'node-pty', 'shelljs', 'zx', 'tinyspawn',
-  'node-fetch', 'undici', 'got', 'axios', 'request', 'superagent',
-  'vm2', 'isolated-vm',
-  'socks-proxy-agent', 'https-proxy-agent', 'ssh2', 'node-ssh',
-]);
-
-const TELEMETRY_DEPS = new Set<string>([
-  '@segment/analytics-node', 'mixpanel', 'amplitude-js', 'posthog-js',
-  '@sentry/node', '@sentry/browser',
-]);
-
-export type NpmLockfileDiffMode =
-  | { mode: 'directories'; oldRoot: string; newRoot: string }
-  | { mode: 'git'; repo: string; base: string; head: string };
-
-export async function detectNpmLockfile(mode: NpmLockfileDiffMode): Promise<Finding[]> {
-  const files =
-    mode.mode === 'directories'
-      ? await listLockfilesInTree(mode.newRoot)
-      : (await listGitChangedFiles(mode.repo, mode.base, mode.head)).filter(isNpmLockfile);
-
+export function detectNpmLockfile(files: TextDiffInput[]): Finding[] {
   const findings: Finding[] = [];
-  for (const file of files) {
-    const oldText = await readLockfileAt(mode, file, 'old');
-    const newText = await readLockfileAt(mode, file, 'new');
-    findings.push(...compareLockfile(file, oldText, newText));
+  for (const input of files) {
+    findings.push(...compareLockfile(input.file, input.oldText, input.newText));
   }
 
   return findings;
-}
-
-async function listLockfilesInTree(root: string): Promise<string[]> {
-  return (await listSafeFiles(root, { includeFile: isNpmLockfile })).files;
-}
-
-async function readLockfileAt(
-  mode: NpmLockfileDiffMode,
-  file: string,
-  side: 'old' | 'new'
-): Promise<string> {
-  if (mode.mode === 'directories') {
-    const root = side === 'old' ? mode.oldRoot : mode.newRoot;
-    return (await readTextWithinRoot(root, file)).text;
-  }
-
-  const ref = side === 'old' ? mode.base : mode.head;
-  return (await readFileAtGitRef(mode.repo, ref, file)) ?? '';
 }
 
 interface LockEntry {
@@ -90,7 +42,7 @@ function compareLockfile(file: string, oldText: string, newText: string): Findin
 
     const line = lineOfJsonKey(newText, entry.locatorKey);
 
-    if ((introduced || metadataChanged) && HIGH_CAPABILITY_DEPS.has(entry.name)) {
+    if ((introduced || metadataChanged) && HIGH_CAPABILITY_JS_DEPS.has(entry.name)) {
       findings.push({
         kind: 'capability_echo.lockfile_high_capability_dep_added',
         surface: 'package',
@@ -101,7 +53,7 @@ function compareLockfile(file: string, oldText: string, newText: string): Findin
         message: `Lockfile pulls in "${entry.name}" — a network/subprocess/eval-shaped dependency — that was not previously present.`,
         recommendation: 'Verify the upstream change that introduced this transitive dep is intentional and trusted.'
       });
-    } else if ((introduced || metadataChanged) && TELEMETRY_DEPS.has(entry.name)) {
+    } else if ((introduced || metadataChanged) && TELEMETRY_JS_DEPS.has(entry.name)) {
       findings.push({
         kind: 'capability_echo.lockfile_telemetry_dep_added',
         surface: 'package',

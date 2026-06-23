@@ -2,11 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_MAX_INPUT_BYTES } from 'agent-gov-core';
 import { detectPythonDeps } from '../dist/detectors/python-deps.js';
+import { runCapabilityDiff } from '../dist/diff.js';
 import { makeOldNewFixture } from 'agent-gov-core/test-utils';
 
 async function makeFixture(oldFiles, newFiles) {
   const fx = await makeOldNewFixture({ old: oldFiles, new: newFiles });
-  return { oldRoot: fx.old, newRoot: fx.new, cleanup: fx.cleanup };
+  const inputs = Object.entries(newFiles).map(([file, newText]) => ({
+    file,
+    oldText: oldFiles[file] ?? '',
+    newText
+  }));
+  return { oldRoot: fx.old, newRoot: fx.new, inputs, cleanup: fx.cleanup };
 }
 
 test('flags newly added high-capability dep in requirements.txt', async () => {
@@ -15,7 +21,7 @@ test('flags newly added high-capability dep in requirements.txt', async () => {
     { 'requirements.txt': 'flask==3.0.0\nrequests==2.31.0\n' }
   );
   try {
-    const findings = await detectPythonDeps({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
+    const findings = detectPythonDeps(fixture.inputs);
     const f = findings.find((finding) => finding.subject === 'requests');
     assert.ok(f, 'requests not flagged');
     assert.equal(f.kind, 'capability_echo.high_capability_dep_added');
@@ -32,7 +38,7 @@ test('flags normalized RestrictedPython dependency names', async () => {
     { 'requirements.txt': 'RestrictedPython==7.3\n' }
   );
   try {
-    const findings = await detectPythonDeps({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
+    const findings = detectPythonDeps(fixture.inputs);
     const f = findings.find((finding) => finding.subject === 'restrictedpython');
     assert.ok(f, 'RestrictedPython should be matched after PEP-503 normalization');
     assert.equal(f.kind, 'capability_echo.high_capability_dep_added');
@@ -48,7 +54,7 @@ test('does not flag pre-existing requirements.txt deps', async () => {
     { 'requirements.txt': 'requests==2.31.0\nflask==3.0.0\n' }
   );
   try {
-    const findings = await detectPythonDeps({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
+    const findings = detectPythonDeps(fixture.inputs);
     assert.equal(findings.find((f) => f.subject === 'requests'), undefined);
   } finally {
     await fixture.cleanup();
@@ -61,7 +67,7 @@ test('normalizes PEP-503 names so underscore vs dash variants match', async () =
     { 'requirements.txt': 'sentry-sdk==1.0\nrequests==2.31.0\n' }
   );
   try {
-    const findings = await detectPythonDeps({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
+    const findings = detectPythonDeps(fixture.inputs);
     assert.equal(findings.find((f) => f.subject === 'sentry-sdk'), undefined, 'pre-existing dep flagged after rename');
     assert.ok(findings.find((f) => f.subject === 'requests'));
   } finally {
@@ -75,7 +81,7 @@ test('ignores comments and pip options in requirements.txt', async () => {
     { 'requirements.txt': '# requests is for the API\n--index-url https://pypi.example.com\n-r constraints.txt\nflask==3.0.0\n' }
   );
   try {
-    const findings = await detectPythonDeps({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
+    const findings = detectPythonDeps(fixture.inputs);
     assert.equal(findings.length, 0, `expected no findings, got: ${JSON.stringify(findings)}`);
   } finally {
     await fixture.cleanup();
@@ -88,7 +94,7 @@ test('extracts dep name from #egg= VCS install', async () => {
     { 'requirements.txt': '-e git+https://github.com/example/requests.git@v1#egg=requests\n' }
   );
   try {
-    const findings = await detectPythonDeps({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
+    const findings = detectPythonDeps(fixture.inputs);
     assert.ok(findings.find((f) => f.subject === 'requests'));
   } finally {
     await fixture.cleanup();
@@ -101,7 +107,7 @@ test('flags telemetry deps at medium', async () => {
     { 'requirements.txt': 'sentry-sdk==1.0\n' }
   );
   try {
-    const findings = await detectPythonDeps({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
+    const findings = detectPythonDeps(fixture.inputs);
     const f = findings.find((finding) => finding.kind === 'capability_echo.telemetry_dep_added');
     assert.ok(f);
     assert.equal(f.severity, 'medium');
@@ -118,7 +124,7 @@ test('flags PEP 621 [project] deps in pyproject.toml', async () => {
     { 'pyproject.toml': newPy }
   );
   try {
-    const findings = await detectPythonDeps({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
+    const findings = detectPythonDeps(fixture.inputs);
     const f = findings.find((finding) => finding.subject === 'requests');
     assert.ok(f);
     assert.equal(f.line, 5);
@@ -135,7 +141,7 @@ test('flags PEP 621 optional-dependencies in pyproject.toml', async () => {
     { 'pyproject.toml': newPy }
   );
   try {
-    const findings = await detectPythonDeps({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
+    const findings = detectPythonDeps(fixture.inputs);
     assert.ok(findings.find((f) => f.subject === 'playwright'));
   } finally {
     await fixture.cleanup();
@@ -150,7 +156,7 @@ test('flags Poetry [tool.poetry.dependencies]', async () => {
     { 'pyproject.toml': newPy }
   );
   try {
-    const findings = await detectPythonDeps({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
+    const findings = detectPythonDeps(fixture.inputs);
     const f = findings.find((finding) => finding.subject === 'httpx');
     assert.ok(f);
     assert.equal(f.line, 4);
@@ -168,7 +174,7 @@ test('flags Pipfile [packages]', async () => {
     { 'Pipfile': newPi }
   );
   try {
-    const findings = await detectPythonDeps({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
+    const findings = detectPythonDeps(fixture.inputs);
     const f = findings.find((finding) => finding.subject === 'requests');
     assert.ok(f);
     assert.equal(f.line, 3);
@@ -183,7 +189,7 @@ test('scans nested requirements/*.txt files', async () => {
     { 'requirements/base.txt': 'flask==3.0\nrequests==2.31.0\n' }
   );
   try {
-    const findings = await detectPythonDeps({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
+    const findings = detectPythonDeps(fixture.inputs);
     const f = findings.find((finding) => finding.subject === 'requests');
     assert.ok(f);
     assert.equal(f.file, 'requirements/base.txt');
@@ -198,7 +204,7 @@ test('ignores benign Python deps', async () => {
     { 'requirements.txt': 'flask==3.0\nclick==8.1\nrich==13.0\n' }
   );
   try {
-    const findings = await detectPythonDeps({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
+    const findings = detectPythonDeps(fixture.inputs);
     assert.equal(findings.length, 0);
   } finally {
     await fixture.cleanup();
@@ -212,8 +218,8 @@ test('directory mode skips oversized Python manifests', async () => {
     { 'requirements.txt': oversizedRequirements }
   );
   try {
-    const findings = await detectPythonDeps({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
-    assert.equal(findings.length, 0, 'oversized manifests must be skipped before parsing');
+    const report = await runCapabilityDiff({ mode: 'directories', oldRoot: fixture.oldRoot, newRoot: fixture.newRoot });
+    assert.equal(report.findings.length, 0, 'oversized manifests must be skipped before parsing');
   } finally {
     await fixture.cleanup();
   }

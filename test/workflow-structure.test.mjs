@@ -73,6 +73,25 @@ jobs:
   assert.match(f.subject, /\(d\)/);
 });
 
+test('structural: external pipe-to-shell without secrets is not secret exfiltration', () => {
+  const wf = `name: install
+on:
+  push:
+jobs:
+  d:
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl https://install.example.com/bootstrap.sh | bash
+`;
+  const findings = detectWorkflowStructure(addedAll('.github/workflows/install.yml', wf), {
+    '.github/workflows/install.yml': wf
+  });
+  assert.equal(
+    findings.find((finding) => finding.kind === 'capability_echo.workflow_secret_exfil_pattern'),
+    undefined
+  );
+});
+
 test('structural: a commented `# permissions: write-all` does NOT fire', () => {
   const wf = `name: pr-check
 on:
@@ -111,7 +130,7 @@ jobs:
   assert.match(f.message, /Job "build"/);
 });
 
-test('structural: mutable action ref fires when the version is a branch name', () => {
+test('structural: mutable action ref fires for non-SHA remote action refs', () => {
   const wf = `name: checkout
 on:
   push:
@@ -126,8 +145,9 @@ jobs:
     '.github/workflows/co.yml': wf
   });
   const findings_mut = findings.filter((finding) => finding.kind === 'capability_echo.workflow_mutable_action_ref');
-  assert.equal(findings_mut.length, 1, 'only the @main ref should be mutable');
-  assert.match(findings_mut[0].message, /actions\/checkout@main/);
+  assert.equal(findings_mut.length, 2, '@main and @v6 should both be mutable remote refs');
+  assert.ok(findings_mut.some((finding) => /actions\/checkout@main/.test(finding.message)));
+  assert.ok(findings_mut.some((finding) => /actions\/checkout@v6/.test(finding.message)));
 });
 
 test('structural: PR head checkout under pull_request_target fires per step', () => {
