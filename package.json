@@ -49,9 +49,9 @@
     "yaml": "^2.9.0"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0",
-    "@vercel/ncc": "^0.38.4",
-    "typescript": "^5.9.3"
+    "@types/node": "^26.1.1",
+    "@vercel/ncc": "^0.44.1",
+    "typescript": "^7.0.2"
   },
   "license": "MIT"
 }
