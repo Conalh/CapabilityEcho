@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -8,6 +9,11 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 const testDir = dirname(fileURLToPath(import.meta.url));
 const packageRoot = join(testDir, '..');
+
+test('npm package exposes the CLI without publish-time manifest repairs', async () => {
+  const packageJson = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'));
+  assert.equal(packageJson.bin?.capabilityecho, 'dist/index.js');
+});
 
 test('npm package contains only release runtime artifacts', async () => {
   const npmArgs = ['pack', '--dry-run', '--json'];

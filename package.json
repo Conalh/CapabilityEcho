@@ -14,7 +14,7 @@
     "LICENSE"
   ],
   "bin": {
-    "capabilityecho": "./dist/index.js"
+    "capabilityecho": "dist/index.js"
   },
   "engines": {
     "node": ">=22"
