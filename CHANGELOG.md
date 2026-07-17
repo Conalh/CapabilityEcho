@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Under v1.0, minor versions may carry breaking changes.
 
+## [Unreleased]
+
+### Changed
+- Updated the pinned GitHub runner actions and the npm production/development toolchain, including TypeScript 7 and agent-gov-core 1.4.0.
+- The Action bundle now consumes the JavaScript emitted by `tsc`, keeping the compiler and bundler boundaries compatible as TypeScript moves to its native toolchain.
+- Removed public dogfood workflows that could no longer resolve the now-private ScopeTrail and TaskBound actions.
+
 ## [0.3.4] - 2026-07-16
 
 ### Added

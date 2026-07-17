@@ -15,6 +15,13 @@ test('npm package exposes the CLI without publish-time manifest repairs', async 
   assert.equal(packageJson.bin?.capabilityecho, 'dist/index.js');
 });
 
+test('Action bundling consumes the JavaScript emitted by TypeScript', async () => {
+  const packageJson = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'));
+  assert.match(packageJson.scripts?.build ?? '', /^tsc\b.*npm run bundle-action$/);
+  assert.match(packageJson.scripts?.['bundle-action'] ?? '', /ncc build dist\/action\.js\b/);
+  assert.doesNotMatch(packageJson.scripts?.['bundle-action'] ?? '', /src\/action\.ts/);
+});
+
 test('npm package contains only release runtime artifacts', async () => {
   const npmArgs = ['pack', '--dry-run', '--json'];
   const command = process.platform === 'win32' ? 'cmd.exe' : 'npm';
