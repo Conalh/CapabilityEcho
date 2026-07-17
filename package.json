@@ -1,13 +1,16 @@
 {
   "name": "capabilityecho",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Code review for AI agent capability drift in pull requests.",
+  "author": "Conal Hickey",
   "type": "module",
   "files": [
     "dist/",
     "action.yml",
     "README.md",
     "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
     "LICENSE"
   ],
   "bin": {
@@ -24,11 +27,22 @@
     "url": "https://github.com/Conalh/CapabilityEcho/issues"
   },
   "homepage": "https://github.com/Conalh/CapabilityEcho#readme",
+  "keywords": [
+    "ai-agents",
+    "github-action",
+    "security",
+    "static-analysis",
+    "supply-chain"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json && npm run bundle-action",
     "bundle-action": "ncc build src/action.ts -o dist/action-bundle --minify",
     "test": "node --test test/*.test.mjs",
-    "benchmark": "tsc -p tsconfig.json && node benchmark/run-benchmark.mjs"
+    "benchmark": "tsc -p tsconfig.json && node benchmark/run-benchmark.mjs",
+    "prepublishOnly": "npm run build && npm test && npm run benchmark"
   },
   "dependencies": {
     "agent-gov-core": "^1.3.0",

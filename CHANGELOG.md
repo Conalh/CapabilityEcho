@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Under v1.0, minor versions may carry breaking changes.
 
+## [0.3.4] - 2026-07-16
+
+### Added
+- Published the CapabilityEcho CLI to npm for direct `npx capabilityecho` and global-install use.
+- Added `capabilityecho --version`, contributor guidance, a security policy, and Dependabot coverage for npm and GitHub Actions.
+
+### Changed
+- Centralized workflow and package-manifest classification so detectors share one discovery contract instead of drifting across implementations.
+- The README now leads local users through the published CLI while retaining source-build instructions for contributors.
+
+### Included from 0.3.3
+- Checked-in exception baselines load from the trusted base revision and cannot be widened by the candidate PR to suppress its own findings.
+- Active suppressions, expired exceptions, invalid policy diagnostics, and exception-policy changes are visible in CLI, JSON, and GitHub Action output.
+
 ## [0.3.3] - 2026-06-21
 
 ### Security

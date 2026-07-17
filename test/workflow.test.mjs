@@ -50,6 +50,7 @@ test('README Action example and Node support match package metadata', async () =
   const packageJson = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'));
 
   assert.match(readme, new RegExp(`uses: Conalh/CapabilityEcho@v${packageJson.version.replaceAll('.', '\\.')}`));
+  assert.match(readme, new RegExp(`npx capabilityecho@${packageJson.version.replaceAll('.', '\\.')}`));
   assert.equal(packageJson.engines.node, '>=22');
   assert.match(readme, /node-%E2%89%A522/);
   assert.match(readme, /requires Node 22 or newer/);

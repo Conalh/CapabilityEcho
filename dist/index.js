@@ -1,8 +1,13 @@
 #!/usr/bin/env node
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { runCapabilityDiff } from './diff.js';
 import { renderReport, severityRank } from './report.js';
 export async function main(argv = process.argv.slice(2)) {
+    if (argv.length === 1 && (argv[0] === '--version' || argv[0] === '-V')) {
+        process.stdout.write(`${packageVersion()}\n`);
+        return 0;
+    }
     if (argv.length === 0 || argv.includes('--help') || argv.includes('-h')) {
         process.stdout.write(`${usage()}\n`);
         return 0;
@@ -132,8 +137,18 @@ if (invokedPath) {
 }
 function usage() {
     return [
+        `CapabilityEcho ${packageVersion()}`,
+        '',
         'Usage:',
+        '  capabilityecho --version',
         '  capabilityecho diff --old <dir> --new <dir> [--exceptions <path>] [--format text|markdown|json|github] [--fail-on none|low|medium|high|critical]',
         '  capabilityecho diff --repo <repo> --base <ref> --head <ref> [--exceptions <path>] [--format text|markdown|json|github] [--fail-on none|low|medium|high|critical]'
     ].join('\n');
+}
+function packageVersion() {
+    const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+    if (typeof packageJson.version !== 'string' || packageJson.version.length === 0) {
+        throw new Error('CapabilityEcho package version is missing.');
+    }
+    return packageJson.version;
 }

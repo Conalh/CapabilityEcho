@@ -24,6 +24,8 @@ test('npm package contains only release runtime artifacts', async () => {
     'package.json',
     'README.md',
     'CHANGELOG.md',
+    'CONTRIBUTING.md',
+    'SECURITY.md',
     'LICENSE',
     'action.yml',
     'dist/index.js',

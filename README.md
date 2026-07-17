@@ -4,6 +4,7 @@
 [![Node](https://img.shields.io/badge/node-%E2%89%A522-339933?logo=node.js&logoColor=white)](package.json)
 [![Local-only](https://img.shields.io/badge/runs-local%20only-2ea44f)](#how-it-works)
 [![Release](https://img.shields.io/github/v/release/Conalh/CapabilityEcho)](https://github.com/Conalh/CapabilityEcho/releases)
+[![npm](https://img.shields.io/npm/v/capabilityecho)](https://www.npmjs.com/package/capabilityecho)
 
 **A code-diff capability detector for AI-agent pull requests.** CapabilityEcho flags new network, subprocess, eval, lifecycle, dependency, Dockerfile, and workflow-permission signals introduced by the code itself, not the agent config.
 
@@ -27,14 +28,10 @@ flowchart LR
 
 **See also:** [ScopeTrail](https://github.com/Conalh/ScopeTrail) for config drift · [TaskBound](https://github.com/Conalh/TaskBound) for task-vs-diff scope creep · [GovVerdict](https://github.com/Conalh/GovVerdict) for one merged suite verdict.
 
-<!-- TODO: add 10s demo GIF here -->
-
-**Quick start** — run it on the bundled fixture:
+**Quick start** — compare two refs in an existing repository:
 
 ```bash
-git clone https://github.com/Conalh/CapabilityEcho && cd CapabilityEcho
-npm install && npm run build
-node dist/index.js diff --old test/fixtures/capability-drift/old --new test/fixtures/capability-drift/new --format markdown
+npx capabilityecho@0.3.4 diff --repo . --base main --head HEAD --format markdown
 ```
 
 Prefer CI? A drop-in GitHub Action (advisory by default) and a real fixture run are in the Quickstart and Example output below.
@@ -126,7 +123,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0          # required: PR base + head are compared
-      - uses: Conalh/CapabilityEcho@v0.3.3
+      - uses: Conalh/CapabilityEcho@v0.3.4
         with:
           fail-on: none           # start advisory, raise to high/critical later
 ```
@@ -136,22 +133,25 @@ This writes a Markdown report to the Actions step summary and emits PR-visible `
 ### Local CLI
 
 ```powershell
-git clone https://github.com/Conalh/CapabilityEcho
-cd CapabilityEcho
-npm install
-npm run build
+# Run without installing globally
+npx capabilityecho@0.3.4 diff --repo . --base main --head HEAD --format text
 
-# Compare two directories (fastest way to try it on the bundled fixture)
-node dist/index.js diff `
+# Or install the CLI
+npm install --global capabilityecho@0.3.4
+
+# Compare two directories
+capabilityecho diff `
   --old test/fixtures/capability-drift/old `
   --new test/fixtures/capability-drift/new `
   --format markdown
 
 # Compare two git refs in a real repo
-node dist/index.js diff --repo . --base main --head HEAD --format text
+capabilityecho diff --repo . --base main --head HEAD --format text
 ```
 
 CapabilityEcho requires Node 22 or newer. CI exercises Node 22 and 24.
+
+To build from source or contribute detector coverage, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Example output
 
@@ -320,4 +320,4 @@ Local-only OSS tools that review AI-agent PRs and coding sessions for config dri
 | [agent-gov-core](https://github.com/Conalh/agent-gov-core) | Shared parsers, the canonical `Finding` schema, and `mergeFindings`. |
 | [agent-gov-demo](https://github.com/Conalh/agent-gov-demo) | Demo sandbox with a rogue PR that fires all five reviewers. |
 
-MIT. Bug reports and false-positive reports welcome via [Issues](https://github.com/Conalh/CapabilityEcho/issues).
+MIT. Bug reports and false-positive reports are welcome via [Issues](https://github.com/Conalh/CapabilityEcho/issues). Please report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).

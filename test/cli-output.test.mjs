@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -15,6 +16,15 @@ async function makeFixture(oldFiles, newFiles) {
   const fx = await makeOldNewFixture({ old: oldFiles, new: newFiles });
   return { oldRoot: fx.old, newRoot: fx.new, cleanup: fx.cleanup };
 }
+
+test('CLI reports the packaged version', async () => {
+  const packageJson = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'));
+  const { stdout } = await execFileAsync(process.execPath, ['dist/index.js', '--version'], {
+    cwd: packageRoot
+  });
+
+  assert.equal(stdout.trim(), packageJson.version);
+});
 
 test('CLI emits JSON capability drift report', async () => {
   const oldDir = join(testDir, 'fixtures', 'capability-drift', 'old');
